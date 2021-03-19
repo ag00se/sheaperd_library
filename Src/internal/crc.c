@@ -1,23 +1,27 @@
 /** @file crc.c
  *  @brief Provides a primitive software crc implementation.
  *
+ *	Default: CRC-32/BZIP2
+ *	Polynom: 0x04C11DB7
+ *	XOR-OUT: 0xFFFFFFFF
+ *
  *  @author JK
  *  @bug No known bugs.
  */
 
 #include "internal/util.h"
 
-//TODO:CHECK THIS
 uint32_t crc32_sw_calculate(uint8_t const data[], int n){
-	uint32_t crc = ~0;
-	for(int i = 0; i < n; i++){
-		printf("%x\r\n", data[i]);
-		if(((crc >> 31) & 1) != data[i]){
-			crc = (crc << 1) ^ SHEAPERD_CRC32_POLY;
-		}else{
-			crc = (crc << 1);
+	uint32_t crc = 0xFFFFFFFF;
+	for (int i = 0; i < n; i++) {
+		crc ^= (data[i] << 24);
+		for (uint8_t j = 0; j < 8; j++) {
+			if(crc & (1 << 31)){
+				crc = (crc << 1) ^ SHEAPERD_CRC32_POLY;
+			}else{
+				crc = crc << 1;
+			}
 		}
 	}
-	printf("%d\r\n", crc);
-	return crc^SHEAPERD_CRC32_XOR_OUT;
+	return crc ^ SHEAPERD_CRC32_XOR_OUT;
 }

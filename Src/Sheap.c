@@ -19,6 +19,10 @@
 
 #include <sheap.h>
 
+#define BYTE_TO_WORD(size) (size / sizeof(uint32_t))
+
+#define PAYLOAD_BLOCK_TO_MEMORY_BLOCK(payload) (memory_block_t*)(((uint8_t*)payload)-sizeof(memory_block_t))
+#define MEMORY_BLOCK_TO_MEMORY_TAG(block) (uint32_t*)(((uint32_t*)block) + BYTE_TO_WORD(sizeof(memory_block_t)) + (BYTE_TO_WORD(block->size)))
 #define GET_R1(r1_val)  asm ("mov %0, r1" : "=r" (r1_val))
 
 typedef struct{
@@ -61,7 +65,10 @@ static uint32_t gCurrentPCIndex;
 static void sheap_logAccess();
 static size_t align(size_t n);
 static memory_block_t* getNextFreeBlockOfSize(size_t size);
-
+static bool isBlockValid(memory_block_t* block);
+static bool isBlockCRCValid(memory_block_t* block);
+static bool isBlockMemoryTagValid(memory_block_t* block);
+static void clearMemoryTag(memory_block_t* block);
 
 
 void sheap_init(uint32_t* heapStart, size_t size){
@@ -181,16 +188,16 @@ void* malloc(size_t size){
 }
 
 void free(void* ptr){
-	memory_block_t* current = gStartBlock;
-	while(current != NULL){
-		if((current + 1) == ptr){
-			//Found memory_block to free
-			break;
-		}
-	}
+	memory_block_t* current = PAYLOAD_BLOCK_TO_MEMORY_BLOCK(ptr);
 	if(current == NULL){
 		//Cannot free pointer - error
 		SHEAPERD_ASSERT("Cannot free the provided pointer", current != NULL);
+		return;
+	}
+	bool blockValid = isBlockValid(current);
+	if(!blockValid){
+		SHEAPERD_ASSERT("MEMORY ERROR: Free operation can not be performed as block has been altered", blockValid);
+		//Maybe hardfault? Error callback? Configrable!!!!!
 		return;
 	}
 
@@ -201,11 +208,29 @@ void free(void* ptr){
 		gHeap.userDataAllocated -= current->size;
 		//TODO: stats
 //		gHeap.totalBytesAllocated -=
-		current->crc = 0;
 		//Maybe consolidate
-		current->next = NULL;
-		current->size = 0;
 	}
-	return;
 }
 
+bool isBlockValid(memory_block_t* block){
+	if(!isBlockCRCValid(block)){
+		return false;
+	}
+	if(!isBlockMemoryTagValid(block)){
+		return false;
+	}
+	return true;
+}
+
+bool isBlockCRCValid(memory_block_t* block){
+	const uint8_t* crcData = (const uint8_t*)block;
+	return block->crc == crc32_sw_calculate(crcData, 8);
+}
+
+bool isBlockMemoryTagValid(memory_block_t* block){
+	return *(MEMORY_BLOCK_TO_MEMORY_TAG(block)) == SHEAPERD_SHEAP_MEM_TAG_VALUE;
+}
+
+void clearMemoryTag(memory_block_t* block){
+	*(MEMORY_BLOCK_TO_MEMORY_TAG(block)) = 0;
+}
