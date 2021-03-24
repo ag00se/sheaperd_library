@@ -230,9 +230,9 @@ void free(void* ptr){
 			if(isValid){
 				size += prev->size + (2 * sizeof(memory_blockInfo_t));
 				current = prev;
-				current->size = size;
 			}
 		}
+		current->size = size;
 		updateCRC(current);
 		updateBlockBoundary(current);
 		//TODO: stats
