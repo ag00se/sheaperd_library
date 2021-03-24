@@ -55,5 +55,7 @@ void* sheap_malloc_impl();
 void sheap_free_impl();
 void* malloc(size_t size);
 void free(void* ptr);
+size_t sheap_getHeapSize();
+size_t sheap_getAllocatedBytes();
 
 #endif /* INC_SHEAP_H_ */

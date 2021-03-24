@@ -21,9 +21,14 @@
 
 #define BYTE_TO_WORD(size) (size / sizeof(uint32_t))
 
-#define PAYLOAD_BLOCK_TO_MEMORY_BLOCK(payload) (memory_block_t*)(((uint8_t*)payload)-sizeof(memory_block_t))
-#define MEMORY_BLOCK_TO_MEMORY_TAG(block) (uint32_t*)(((uint32_t*)block) + BYTE_TO_WORD(sizeof(memory_block_t)) + (BYTE_TO_WORD(block->size)))
-#define GET_R1(r1_val)  asm ("mov %0, r1" : "=r" (r1_val))
+#define PAYLOAD_BLOCK_TO_MEMORY_BLOCK(payload) 	((memory_blockInfo_t*)payload) - 1
+#define GET_NEXT_MEMORY_BLOCK(block) 			(memory_blockInfo_t*)	(((uint8_t*)block) + 2 * sizeof(memory_blockInfo_t) + block->size)
+#define GET_PREV_MEMORY_BLOCK(block)			(memory_blockInfo_t*)	(((uint8_t*)block) - 2 * sizeof(memory_blockInfo_t) - GET_SIZE_OF_PREV_BLOCK(block))
+#define GET_BOUNDARY_TAG(block)					(memory_blockInfo_t*)  	(((uint8_t*)block) + sizeof(memory_blockInfo_t) + block->size)
+#define GET_BLOCK_OVERHEAD_SIZE(size)			(size_t) (size +  (2 * sizeof(memory_blockInfo_t)))
+#define GET_SIZE_OF_PREV_BLOCK(block)			(block - 1)->size
+
+#define GET_R1(r1_val)							asm ("mov %0, r1" : "=r" (r1_val))
 
 typedef struct{
 	uint8_t* 	heapMin;
@@ -36,15 +41,14 @@ typedef struct{
 
 
 #pragma pack(1)
-typedef struct memory_block_t memory_block_t;
-typedef struct memory_block_t{
+typedef struct memory_blockInfo_t memory_blockInfo_t;
+typedef struct memory_blockInfo_t{
 	//Allocations will only be performed in 4 byte steps. Therefore the lowest bit can be used as a flag
 	uint32_t 			isAllocated : 1;
 	uint32_t 			size 		: 31;
-	memory_block_t* 	next;
 	uint32_t			crc;
 	//payload added here - no datatype for convenient pointer arithmetics
-} memory_block_t ;
+} memory_blockInfo_t;
 #pragma pack()
 
 #ifdef SHEAPERD_CMSIS_2
@@ -57,19 +61,22 @@ typedef struct memory_block_t{
 	};
 #endif
 
-static memory_block_t* gStartBlock;
+static memory_blockInfo_t* gStartBlock;
 static heap_t gHeap;
 static uint32_t gProgramCounters[SHEAPERD_SHEAP_PC_LOG_SIZE];
 static uint32_t gCurrentPCIndex;
 
 static void sheap_logAccess();
 static size_t align(size_t n);
-static memory_block_t* getNextFreeBlockOfSize(size_t size);
-static bool isBlockValid(memory_block_t* block);
-static bool isBlockCRCValid(memory_block_t* block);
-static bool isBlockMemoryTagValid(memory_block_t* block);
-static void clearMemoryTag(memory_block_t* block);
-
+static memory_blockInfo_t* getNextFreeBlockOfSize(size_t size);
+static bool isBlockValid(memory_blockInfo_t* block);
+static bool isBlockCRCValid(memory_blockInfo_t* block);
+static void clearMemory(uint8_t* ptr, size_t size);
+static void updateBlockBoundary(memory_blockInfo_t* block);
+static void updateBlockHeader(memory_blockInfo_t* block, size_t size, bool isAllocated);
+static void updateCRC(memory_blockInfo_t* block);
+static bool isPreviousBlockFree(memory_blockInfo_t* block);
+static bool isNextBlockFree(memory_blockInfo_t* block);
 
 void sheap_init(uint32_t* heapStart, size_t size){
 	if(size == 0){
@@ -84,13 +91,11 @@ void sheap_init(uint32_t* heapStart, size_t size){
 	gHeap.heapMin = (uint8_t*) heapStart;
 	gHeap.size = size;
 	gHeap.heapMax = gHeap.heapMin + gHeap.size;
-	for(int i = 0; i < gHeap.size; i++){
-		gHeap.heapMin[i] = 0;
-	}
-	gStartBlock = (memory_block_t*) gHeap.heapMin;
-	gStartBlock->size = size;
-	gStartBlock->isAllocated = false;
-	gStartBlock->next = NULL;
+	clearMemory(gHeap.heapMin, size);
+
+	gStartBlock = (memory_blockInfo_t*) gHeap.heapMin;
+	updateBlockHeader(gStartBlock, gHeap.size - 2 * sizeof(memory_blockInfo_t), false);
+	updateBlockBoundary(gStartBlock);
 #ifdef SHEAPERD_CMSIS_2
 	gMemMutex_id = osMutexNew(&memMutex_attr);
 	SHEAPERD_ASSERT("Mutex creation for sheap init failed.", gMemMutex_id != NULL);
@@ -121,27 +126,27 @@ void sheap_logAccess(uint32_t pc){
 	gProgramCounters[(gCurrentPCIndex + 1) % SHEAPERD_SHEAP_PC_LOG_SIZE] = (uint32_t)pc;
 }
 
+size_t sheap_getHeapSize(){
+	return gHeap.size;
+}
+
 //Aligns the requested size to a multiple of 4 byte
 size_t align(size_t n) {
 	return (n + SHEAP_MINIMUM_MALLOC_SIZE - 1) & ~(SHEAP_MINIMUM_MALLOC_SIZE - 1);
 }
 
-memory_block_t* getNextFreeBlockOfSize(size_t size){
-	size_t overheadSize = size + sizeof(memory_block_t);
-	if(SHEAPERD_SHEAP_USE_MEM_TAGGING){
-		overheadSize += SHEAPERD_SHEAP_MEM_TAG_SIZE_BYTES;
+memory_blockInfo_t* getNextFreeBlockOfSize(size_t size){
+	memory_blockInfo_t* current = gStartBlock;
+	while((current->isAllocated == true || current->size < size) && (((uint8_t*)current) < gHeap.heapMax)){
+		current = GET_NEXT_MEMORY_BLOCK(current);
 	}
-	memory_block_t* current = gStartBlock;
-	while(current->isAllocated == true){
-		current = current->next;
-	}
-	if(current == NULL){
+	if(current == NULL || (((uint8_t*)current) >= gHeap.heapMax)){
 		//no more memory left
 		return NULL;
 	}
-	uint8_t* test = (((uint8_t*)current) + overheadSize);
-	if(test > gHeap.heapMax){
-		//no more memory left
+
+	if(!isBlockValid(current)){
+		//block has most likely been altered -- fault
 		return NULL;
 	}
 	return current;
@@ -151,44 +156,44 @@ memory_block_t* getNextFreeBlockOfSize(size_t size){
 
 void* malloc(size_t size){
 	if(size == 0){
-		SHEAPERD_ASSERT("Cannot allocate size of 0. Is this call intentional?", size > 0);
+		SHEAPERD_ASSERT("Cannot allocate size of 0. Is this call intentional?", false);
 		return NULL;
 	}
 	size = align(size);
-	memory_block_t* freeBlock = getNextFreeBlockOfSize(size);
+	memory_blockInfo_t* allocate = getNextFreeBlockOfSize(size);
 
-	freeBlock->isAllocated = true;
-	freeBlock->size = size;
+	if(allocate == NULL){
+		return NULL;
+	}
+
+	uint32_t preAllocSize = allocate->size;
+	allocate->isAllocated = true;
+	allocate->size = size;
 	gHeap.currentAllocations += 1;
 	//TODO: make statistics - own funciton
 	//	gHeap.totalBytesAllocated += ;
 	gHeap.userDataAllocated += size;
 
+	updateCRC(allocate);
+	updateBlockBoundary(allocate);
+
 	//pointer arithmetic used to jump over the
-	uint8_t* payload = (uint8_t*)(freeBlock + 1);
-	if(SHEAPERD_SHEAP_USE_MEM_TAGGING){
-		uint32_t* pMemTag = (uint32_t*)(payload + size);
-		*pMemTag = SHEAPERD_SHEAP_MEM_TAG_VALUE;
-		freeBlock->next = (memory_block_t*)(payload + size + SHEAPERD_SHEAP_MEM_TAG_SIZE_BYTES);
-	}else{
-		freeBlock->next = (memory_block_t*)(payload + size);
+	uint8_t* payload = (uint8_t*)(allocate + 1);
+
+	if(preAllocSize > GET_BLOCK_OVERHEAD_SIZE(size)){
+		memory_blockInfo_t* remainingBlock = GET_NEXT_MEMORY_BLOCK(allocate);
+		updateBlockHeader(remainingBlock, preAllocSize - GET_BLOCK_OVERHEAD_SIZE(size), false);
+		updateBlockBoundary(remainingBlock);
 	}
-
-	//TODO: check if enough memory available
-	memory_block_t* next = freeBlock->next;
-	next->isAllocated = false;
-	next->next = NULL;
-	next->crc = 0;
-	next->size = 0;
-
-	const uint8_t* crcData = (const uint8_t*)freeBlock;
-	uint32_t crc = crc32_sw_calculate(crcData, 8);
-	freeBlock->crc = crc;
     return payload;
 }
 
 void free(void* ptr){
-	memory_block_t* current = PAYLOAD_BLOCK_TO_MEMORY_BLOCK(ptr);
+	if(ptr == NULL){
+		SHEAPERD_ASSERT("MEMORY ERROR: Free operation not valid for null pointer", false);
+		return;
+	}
+	memory_blockInfo_t* current = PAYLOAD_BLOCK_TO_MEMORY_BLOCK(ptr);
 	if(current == NULL){
 		//Cannot free pointer - error
 		SHEAPERD_ASSERT("Cannot free the provided pointer", current != NULL);
@@ -197,40 +202,94 @@ void free(void* ptr){
 	bool blockValid = isBlockValid(current);
 	if(!blockValid){
 		SHEAPERD_ASSERT("MEMORY ERROR: Free operation can not be performed as block has been altered", blockValid);
-		//Maybe hardfault? Error callback? Configrable!!!!!
+		//Maybe hardfault? Error callback? Configurable!!!!!
 		return;
 	}
 
 	if(current->isAllocated){
 		current->isAllocated = false;
-
 		gHeap.currentAllocations -= 1;
 		gHeap.userDataAllocated -= current->size;
+		#ifdef SHEAPERD_SHEAP_OVERWRITE_ON_FREE
+			clearMemory((uint8_t*)ptr, current->size);
+		#endif
+
+		size_t size = current->size;
+		if(isNextBlockFree(current)){
+			memory_blockInfo_t* next = GET_NEXT_MEMORY_BLOCK(current);
+			bool isValid = isBlockValid(next);
+			SHEAPERD_ASSERT("MEMORY ERROR: Free cannot coalesce with next block as it is not valid.", isValid);
+			if(isValid){
+				size += next->size + (2 * sizeof(memory_blockInfo_t));
+			}
+		}
+		if(isPreviousBlockFree(current)){
+			memory_blockInfo_t* prev = GET_PREV_MEMORY_BLOCK(current);
+			bool isValid = isBlockValid(prev);
+			SHEAPERD_ASSERT("MEMORY ERROR: Free cannot coalesce with previous block as it is not valid.", isValid);
+			if(isValid){
+				size += prev->size + (2 * sizeof(memory_blockInfo_t));
+				current = prev;
+				current->size = size;
+			}
+		}
+		updateCRC(current);
+		updateBlockBoundary(current);
 		//TODO: stats
 //		gHeap.totalBytesAllocated -=
 		//Maybe consolidate
+	}else{
+		//Cannot free not allocated block -- should not be here?
+		SHEAPERD_ASSERT("Sheaperd free block valid, but not allocated, should not happen.", false);
 	}
 }
 
-bool isBlockValid(memory_block_t* block){
-	if(!isBlockCRCValid(block)){
-		return false;
-	}
-	if(!isBlockMemoryTagValid(block)){
-		return false;
-	}
-	return true;
+bool isPreviousBlockFree(memory_blockInfo_t* block){
+	memory_blockInfo_t* prevBoundary = block - 1;
+	return ((uint8_t*) prevBoundary) >= gHeap.heapMin && !prevBoundary->isAllocated;
 }
 
-bool isBlockCRCValid(memory_block_t* block){
+bool isNextBlockFree(memory_blockInfo_t* block){
+	memory_blockInfo_t* next = GET_NEXT_MEMORY_BLOCK(block);
+	return ((uint8_t*) next) <= gHeap.heapMax && !next->isAllocated;
+}
+
+void updateCRC(memory_blockInfo_t* block){
 	const uint8_t* crcData = (const uint8_t*)block;
-	return block->crc == crc32_sw_calculate(crcData, 8);
+	block->crc = crc32_sw_calculate(crcData, 4);
 }
 
-bool isBlockMemoryTagValid(memory_block_t* block){
-	return *(MEMORY_BLOCK_TO_MEMORY_TAG(block)) == SHEAPERD_SHEAP_MEM_TAG_VALUE;
+void updateBlockHeader(memory_blockInfo_t* block, size_t size, bool isAllocated){
+	block->isAllocated = isAllocated;
+	block->size = size;
+	updateCRC(block);
 }
 
-void clearMemoryTag(memory_block_t* block){
-	*(MEMORY_BLOCK_TO_MEMORY_TAG(block)) = 0;
+
+void updateBlockBoundary(memory_blockInfo_t* block){
+	memory_blockInfo_t* boundary = GET_BOUNDARY_TAG(block);
+	boundary->isAllocated = block->isAllocated;
+	boundary->size = block->size;
+	boundary->crc = block->crc;
+}
+
+bool isBlockValid(memory_blockInfo_t* block){
+	return isBlockCRCValid(block);
+}
+
+bool isBlockCRCValid(memory_blockInfo_t* block){
+	memory_blockInfo_t* boundary = GET_BOUNDARY_TAG(block);
+	const uint8_t* crcData = (const uint8_t*)block;
+	uint32_t crc = crc32_sw_calculate(crcData, 4);
+	return (block->crc == crc) && (boundary->crc == crc);
+}
+
+void clearMemory(uint8_t* ptr, size_t size){
+	for(int i = 0; i < size; i++){
+		ptr[i] = SHEAPERD_SHEAP_OVERWRITE_VALUE;
+	}
+}
+
+size_t sheap_getAllocatedBytes(){
+	return gHeap.userDataAllocated;
 }
