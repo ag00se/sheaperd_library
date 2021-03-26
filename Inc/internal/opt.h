@@ -43,7 +43,7 @@ void* _sbrk(ptrdiff_t incr);
 #endif
 
 #define SHEAPERD_SHEAP_PC_LOG_SIZE 			20
-#define SHEAPERD_SHEAP_USE_MEM_TAGGING 		1
+
 #define SHEAPERD_SHEAP_OVERWRITE_ON_FREE	1
 #define SHEAPERD_SHEAP_OVERWRITE_VALUE		0xFF
 

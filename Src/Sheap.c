@@ -66,6 +66,8 @@ static heap_t gHeap;
 static uint32_t gProgramCounters[SHEAPERD_SHEAP_PC_LOG_SIZE];
 static uint32_t gCurrentPCIndex;
 
+static sheap_errorCallback_t gErrorCallback;
+
 static void sheap_logAccess();
 static size_t align(size_t n);
 static memory_blockInfo_t* getNextFreeBlockOfSize(size_t size);
@@ -77,6 +79,14 @@ static void updateBlockHeader(memory_blockInfo_t* block, size_t size, bool isAll
 static void updateCRC(memory_blockInfo_t* block);
 static bool isPreviousBlockFree(memory_blockInfo_t* block);
 static bool isNextBlockFree(memory_blockInfo_t* block);
+static void coalesce(memory_blockInfo_t** block);
+static void clearBlockMeta(memory_blockInfo_t* block);
+static void clearBlockHeader(memory_blockInfo_t* block);
+static void clearBlockBoundary(memory_blockInfo_t* block);
+
+void sheap_registerErrorCallback(sheap_errorCallback_t callback){
+	gErrorCallback = callback;
+}
 
 void sheap_init(uint32_t* heapStart, size_t size){
 	if(size == 0){
@@ -119,11 +129,19 @@ void* sheap_malloc_impl(){
 }
 
 void sheap_free_impl(){
-	sheap_logAccess();
+	// Get the pointer to free from r0
+	//---------------------------------
+	register void* ptr asm ("r0");
+	void* pFree = ptr;
+	//---------------------------------
+	uint32_t pc;
+	GET_R1(pc);
+	sheap_logAccess(pc);
+	free((void*) pFree);
 }
 
 void sheap_logAccess(uint32_t pc){
-	gProgramCounters[(gCurrentPCIndex + 1) % SHEAPERD_SHEAP_PC_LOG_SIZE] = (uint32_t)pc;
+	gProgramCounters[(++gCurrentPCIndex) % SHEAPERD_SHEAP_PC_LOG_SIZE] = (uint32_t)pc;
 }
 
 size_t sheap_getHeapSize(){
@@ -191,18 +209,20 @@ void* malloc(size_t size){
 void free(void* ptr){
 	if(ptr == NULL){
 		SHEAPERD_ASSERT("MEMORY ERROR: Free operation not valid for null pointer", false);
+		gErrorCallback(SHEAP_ERROR_NULL_FREE);
 		return;
 	}
 	memory_blockInfo_t* current = PAYLOAD_BLOCK_TO_MEMORY_BLOCK(ptr);
 	if(current == NULL){
 		//Cannot free pointer - error
-		SHEAPERD_ASSERT("Cannot free the provided pointer", current != NULL);
+		SHEAPERD_ASSERT("Cannot free the provided pointer", false);
+		gErrorCallback(SHEAP_ERROR_FREE_INVALID_POINTER);
 		return;
 	}
 	bool blockValid = isBlockValid(current);
 	if(!blockValid){
 		SHEAPERD_ASSERT("MEMORY ERROR: Free operation can not be performed as block has been altered", blockValid);
-		//Maybe hardfault? Error callback? Configurable!!!!!
+		gErrorCallback(SHEAP_ERROR_FREE_BLOCK_ALTERED_CRC_INVALID);
 		return;
 	}
 
@@ -210,38 +230,74 @@ void free(void* ptr){
 		current->isAllocated = false;
 		gHeap.currentAllocations -= 1;
 		gHeap.userDataAllocated -= current->size;
-		#ifdef SHEAPERD_SHEAP_OVERWRITE_ON_FREE
+#ifdef SHEAPERD_SHEAP_OVERWRITE_ON_FREE
 			clearMemory((uint8_t*)ptr, current->size);
-		#endif
-
-		size_t size = current->size;
-		if(isNextBlockFree(current)){
-			memory_blockInfo_t* next = GET_NEXT_MEMORY_BLOCK(current);
-			bool isValid = isBlockValid(next);
-			SHEAPERD_ASSERT("MEMORY ERROR: Free cannot coalesce with next block as it is not valid.", isValid);
-			if(isValid){
-				size += next->size + (2 * sizeof(memory_blockInfo_t));
-			}
-		}
-		if(isPreviousBlockFree(current)){
-			memory_blockInfo_t* prev = GET_PREV_MEMORY_BLOCK(current);
-			bool isValid = isBlockValid(prev);
-			SHEAPERD_ASSERT("MEMORY ERROR: Free cannot coalesce with previous block as it is not valid.", isValid);
-			if(isValid){
-				size += prev->size + (2 * sizeof(memory_blockInfo_t));
-				current = prev;
-			}
-		}
-		current->size = size;
+#endif
+		coalesce(&current);
 		updateCRC(current);
 		updateBlockBoundary(current);
 		//TODO: stats
 //		gHeap.totalBytesAllocated -=
-		//Maybe consolidate
 	}else{
-		//Cannot free not allocated block -- should not be here?
 		SHEAPERD_ASSERT("Sheaperd free block valid, but not allocated, should not happen.", false);
+		gErrorCallback(SHEAP_ERROR_DOUBLE_FREE);
 	}
+}
+
+void coalesce(memory_blockInfo_t** block){
+	size_t size = (*block)->size;
+	if (isNextBlockFree((*block))) {
+		memory_blockInfo_t* next = GET_NEXT_MEMORY_BLOCK((*block));
+		bool isValid = isBlockValid(next);
+		SHEAPERD_ASSERT("MEMORY ERROR: Free cannot coalesce with next block as it is not valid.", isValid);
+		if (isValid) {
+			size += next->size + (2 * sizeof(memory_blockInfo_t));
+			clearBlockHeader(next);
+			clearBlockBoundary(*block);
+		} else {
+			gErrorCallback(SHEAP_ERROR_COALESCING_NEXT_BLOCK_ALTERED_INVALID_CRC);
+		}
+	}
+	if (isPreviousBlockFree((*block))) {
+		memory_blockInfo_t* prev = GET_PREV_MEMORY_BLOCK((*block));
+		bool isValid = isBlockValid(prev);
+		SHEAPERD_ASSERT("MEMORY ERROR: Free cannot coalesce with previous block as it is not valid.", isValid);
+		if (isValid) {
+			size += prev->size + (2 * sizeof(memory_blockInfo_t));
+			clearBlockHeader(*block);
+			(*block) = prev;
+			clearBlockBoundary(prev);
+		} else {
+			gErrorCallback(
+					SHEAP_ERROR_COALESCING_PREV_BLOCK_ALTERED_INVALID_CRC);
+		}
+	}
+	(*block)->size = size;
+}
+
+uint32_t sheap_getLatestAllocationPCs(uint32_t destination[], uint32_t n){
+	uint32_t index = gCurrentPCIndex;
+	uint32_t count = 0;
+	while(gProgramCounters[index % SHEAPERD_SHEAP_PC_LOG_SIZE] != 0 && count < n && count < SHEAPERD_SHEAP_PC_LOG_SIZE){
+		destination[count++] = gProgramCounters[(index--) % SHEAPERD_SHEAP_PC_LOG_SIZE];
+	}
+	return count;
+}
+
+void clearBlockMeta(memory_blockInfo_t* block){
+#ifdef SHEAPERD_SHEAP_OVERWRITE_ON_FREE
+	clearBlockBoundary(block);
+	clearBlockHeader(block);
+#endif
+}
+
+void clearBlockHeader(memory_blockInfo_t* block){
+	clearMemory((uint8_t*) block, sizeof(memory_blockInfo_t));
+}
+
+void clearBlockBoundary(memory_blockInfo_t* block){
+	memory_blockInfo_t* boundary = GET_BOUNDARY_TAG(block);
+	clearMemory((uint8_t*) boundary, sizeof(memory_blockInfo_t));
 }
 
 bool isPreviousBlockFree(memory_blockInfo_t* block){
