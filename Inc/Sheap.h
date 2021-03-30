@@ -10,7 +10,13 @@
 
 #include "sheaperd.h"
 
-#define SHEAP_MINIMUM_MALLOC_SIZE 		4
+#ifndef SHEAP_MINIMUM_MALLOC_SIZE
+	#define SHEAP_MINIMUM_MALLOC_SIZE 		4
+#endif
+#if SHEAP_MINIMUM_MALLOC_SIZE < 4
+	#define SHEAP_MINIMUM_MALLOC_SIZE 		4
+#endif
+
 
 /** \def SHEAP_MALLOC(size, pVoid)
 *    \brief Allocates the size \size on the heap and returns the pointer in pVoid \pVoid.
@@ -47,6 +53,7 @@ typedef enum {
 	SHEAP_ERROR_DOUBLE_FREE,
 	SHEAP_ERROR_NULL_FREE,
 	SHEAP_ERROR_OUT_OF_BOUND_WRITE,
+	SHEAP_ERROR_POSSIBLE_OUT_OF_BOUND_WRITE,
 	SHEAP_ERROR_FREE_INVALID_POINTER,
 	SHEAP_ERROR_FREE_BLOCK_ALTERED_CRC_INVALID,
 	SHEAP_ERROR_COALESCING_NEXT_BLOCK_ALTERED_INVALID_CRC,
@@ -63,7 +70,21 @@ void sheap_free_impl();
 void* malloc(size_t size);
 void free(void* ptr);
 size_t sheap_getHeapSize();
-size_t sheap_getAllocatedBytes();
+size_t sheap_getAllocatedBytesAligned();
+
+/**
+ * Align the the size to a multiple of a predefined size
+ *
+ * The define 'SHEAP_MINIMUM_MALLOC_SIZE' can be used to specify the size to align to.
+ * This function align the provided size to 'SHEAP_MINIMUM_MALLOC_SIZE'
+ *
+ * Examples: n = 7 --> return 8; n = 11 --> return 12
+ *
+ * @param n		The size to be aligned
+ *
+ * @return		n aligned to 'SHEAP_MINIMUM_MALLOC_SIZE'
+ */
+size_t sheap_align(size_t n);
 
 /**
  * Gets the latest program counter addresses that used SHEAP_MALLOC() or SHEAP_FREE()

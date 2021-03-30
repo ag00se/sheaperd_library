@@ -9,5 +9,9 @@
 #ifndef SHEAPERDOPTS_H_
 #define SHEAPERDOPTS_H_
 
+#define SHEAPERD_PORT_ASSERT(msg) 					\
+do {												\
+	handleFailedAssert(msg, __LINE__, __FILE__); 	\
+} while(0)
 
 #endif /* SHEAPERDOPTS_H_ */
