@@ -10,8 +10,7 @@
 
 #include "internal/def.h"
 #include "internal/opt.h"
+#include "internal/util.h"
 #include "sheap.h"
-
-uint32_t crc32_sw_calculate(uint8_t const data[], int n);
 
 #endif /* SHEAPERD_H_ */

@@ -2,21 +2,24 @@
  *  @brief Provides a secure heap (sheap) implementations.
  *
  *	Memory block layout:
- *  +------------------------+------------------------+------------------------+---------------------------------------------+------------------------+------------------------+------------------------+
- *	|  						 |						  |						   |											 |						  |						   |  					    |
- *	| 	    Aligned Size     |	    Requested Size	  |         CRC            |                  PAYLOAD                    | 	    Aligned Size      |     Requested Size     |          CRC           |
- *	|        Alloc-Flag      |		   			 	  |                        |                                             |       Alloc-Flag       |                        |                        |
- *	+------------------------+------------------------+------------------------+---------------------------------------------+------------------------+------------------------+------------------------+
+ *  +------------------------+------------+------------+---------------------------------------------+------------------------+------------+------------+
+ *	|  						 |			  |			   |						    				 |						  |			   |			|
+ *	|      aligned size      |  alignment |   CRC16    |                  PAYLOAD                    |      aligned size      |  alignment |   CRC16    |
+ *	|       alloc flag       |   offset   |		 	   |                 USER DATA                   |       alloc flag       |   offset   |		 	|
+ *	|  						 |			  |			   |						    				 |						  |			   |			|
+ *	+------------------------+------------+------------+---------------------------------------------+------------------------+-------------------------+
+ *  ^-- 4 bytes    			 ^-- 2 bytes  ^-- 2 bytes  ^-- aligned size bytes						 ^-- 4bytes     		  ^-- 2 bytes  ^-- 2 bytes
+ *
  *
  *	The memory block info stores the size of the allocated user data (payload size). As the size is aligned to at least 4 due to 'SHEAP_MINIMUM_MALLOC_SIZE'
  *	the lowest bit can be used as a flag to mark if a block currently is allocated or not.
- *	The CRC is calculated over the size/alloc-flag and is intended to detect bound overflow or altered blocks in general.
- *	The boundary (end tag) with size and CRC information is used for coalescing of blocks and can also be checked to recognize if a block was altered
+ *	The CRC is calculated over the size/alloc-flag and the alignment offset. It is intended to detect bound overflow or altered blocks in general.
+ *	The boundary (end tag) with size, alignment and CRC information is used for coalescing of blocks and can also be checked to recognize if a block was altered
  *
- *	Why is the aligned and the requested size stored?
+ *	Why is the aligned and the alignment offset stored?
  *	This library should help to detect as many memory related errors as possible. If only the aligned size is stored a user would allocate 5 bytes and a aligned size of 8 bytes is reserved and a block is created accordingly.
- *	When freeing the block and checking if a write out of bound occurred could only be recognized if it altered the next block. When storing the requested size, it can be checked if for example 5 bytes have been allocated,
- *	and 7 bytes have been written. In that case an error can be reported when storing the requested size.
+ *	When freeing a block and checking if a write out of bound occurred it could only be recognized if it altered the next block. When storing the alignment offset, the user requested size can be calculated and
+ *	the block can be checked if for example 5 bytes have been requested from the user, and 7 bytes have been written. In that case an error can be reported when storing the additional alignment offset.
  *
  *  This implementation provides malloc/free routines with added safty measures like:
  *  	+ checking double free
@@ -44,14 +47,11 @@
 #define GET_R1(r1_val)							asm ("mov %0, r1" : "=r" (r1_val))
 
 #pragma pack(1)
-typedef struct memory_blockInfo_t memory_blockInfo_t;
 typedef struct memory_blockInfo_t{
-	//Allocations will only be performed in 4 byte steps. Therefore the lowest bit can be used as a flag
 	uint32_t 			isAllocated : 1;
 	uint32_t 			size 		: 31;
-	uint32_t			requestedSize;
-	uint32_t			crc;
-	//payload added here - no datatype for convenient pointer arithmetics
+	uint16_t			alignmentOffset;
+	uint16_t			crc;
 } memory_blockInfo_t;
 #pragma pack()
 
@@ -61,13 +61,13 @@ typedef enum{
 } memory_operation_t;
 
 #ifdef SHEAPERD_CMSIS_2
-	static osMutexId_t gMemMutex_id;
-	static const osMutexAttr_t memMutex_attr = {
-		  "sheap_mutex",
-		  osMutexRecursive,
-		  NULL,
-		  0U
-	};
+static osMutexId_t gMemMutex_id;
+static const osMutexAttr_t memMutex_attr = {
+	  "sheap_mutex",
+	  osMutexRecursive,
+	  NULL,
+	  0U
+};
 #endif
 
 static memory_blockInfo_t* gStartBlock;
@@ -206,7 +206,7 @@ void* malloc(size_t size){
 	uint32_t preAllocSize = allocate->size;
 	allocate->isAllocated = true;
 	allocate->size = sizeAligned;
-	allocate->requestedSize = size;
+	allocate->alignmentOffset = sizeAligned - size;
 	updateHeapStatistics(MEMORY_OP_ALLOC, 1, sizeAligned, size, GET_BLOCK_OVERHEAD_SIZE(sizeAligned));
 
 	updateCRC(allocate);
@@ -228,19 +228,24 @@ void free(void* ptr){
 		errorCallback(SHEAP_ERROR_NULL_FREE);
 		return;
 	}
+	if(ptr < gHeap.heapMin || ptr > gHeap.heapMax){
+		SHEAPERD_ASSERT("Cannot free pointer outside of heap.", false);
+		errorCallback(SHEAP_ERROR_FREE_PTR_NOT_IN_HEAP);
+		return;
+	}
 	memory_blockInfo_t* current = PAYLOAD_BLOCK_TO_MEMORY_BLOCK(ptr);
 	if(current == NULL){
 		SHEAPERD_ASSERT("Cannot free the provided pointer", false);
-		errorCallback(SHEAP_ERROR_FREE_INVALID_POINTER);
+		errorCallback(SHEAP_ERROR_FREE_INVALID_HEADER);
 		return;
 	}
 	if(!isBlockHeaderCRCValid(current)){
-		SHEAPERD_ASSERT("MEMORY ERROR: Free operation can not be performed as block is not valid", false);
-		errorCallback(SHEAP_ERROR_FREE_INVALID_POINTER);
+		SHEAPERD_ASSERT("MEMORY ERROR: Free operation can not be performed as block header is not valid", false);
+		errorCallback(SHEAP_ERROR_FREE_INVALID_HEADER);
 		return;
 	}else if(!isBlockBoundaryCRCValid(current)){
-		SHEAPERD_ASSERT("MEMORY ERROR: Free operation can not be performed as block is not valid. It may have been altered. Calling the error callback", false);
-		errorCallback(SHEAP_ERROR_POSSIBLE_OUT_OF_BOUND_WRITE);
+		SHEAPERD_ASSERT("MEMORY ERROR: Free operation can not be performed as block boundary is not valid. It may have been altered. Calling the error callback", false);
+		errorCallback(SHEAP_ERROR_FREE_INVALID_BOUNDARY_POSSIBLE_OUT_OF_BOUND_WRITE);
 		return;
 	}
 
@@ -255,7 +260,7 @@ void free(void* ptr){
 
 	if(current->isAllocated){
 		current->isAllocated = false;
-		updateHeapStatistics(MEMORY_OP_FREE, 1, current->size, current->requestedSize, GET_BLOCK_OVERHEAD_SIZE(current->size));
+		updateHeapStatistics(MEMORY_OP_FREE, 1, current->size, current->size - current->alignmentOffset, GET_BLOCK_OVERHEAD_SIZE(current->size));
 #ifdef SHEAPERD_SHEAP_OVERWRITE_ON_FREE
 			clearMemory((uint8_t*)ptr, current->size);
 #endif
@@ -296,6 +301,7 @@ void coalesce(memory_blockInfo_t** block){
 		}
 	}
 	(*block)->size = size;
+	(*block)->alignmentOffset = 0;
 }
 
 uint32_t sheap_getLatestAllocationPCs(uint32_t destination[], uint32_t n){
@@ -308,8 +314,8 @@ uint32_t sheap_getLatestAllocationPCs(uint32_t destination[], uint32_t n){
 }
 
 bool checkForIllegalWrite(memory_blockInfo_t* block){
-	uint8_t* pPayload = ((uint8_t*)(block + 1)) + block->requestedSize;
-	size_t alignment = block->size - block->requestedSize;
+	uint8_t* pPayload = ((uint8_t*)(block + 1)) + block->alignmentOffset;
+	size_t alignment = block->size - block->alignmentOffset;
 	for(int i = 0; i < alignment; i++){
 		if(pPayload[i] != SHEAPERD_SHEAP_OVERWRITE_VALUE){
 			return true;
@@ -346,13 +352,13 @@ bool isNextBlockFree(memory_blockInfo_t* block){
 
 void updateCRC(memory_blockInfo_t* block){
 	const uint8_t* crcData = (const uint8_t*)block;
-	block->crc = crc32_sw_calculate(crcData, sizeof(uint32_t) * 2);
+	block->crc = crc16_sw_calculate(crcData, sizeof(uint32_t) + sizeof(uint16_t));
 }
 
 void updateBlockHeader(memory_blockInfo_t* block, size_t sizeAligned, size_t sizeRequested, bool isAllocated){
 	block->isAllocated = isAllocated;
 	block->size = sizeAligned;
-	block->requestedSize = sizeRequested;
+	block->alignmentOffset = sizeRequested == 0 ? 0 : sizeAligned - sizeRequested;
 	updateCRC(block);
 }
 
@@ -361,7 +367,7 @@ void updateBlockBoundary(memory_blockInfo_t* block){
 	memory_blockInfo_t* boundary = GET_BOUNDARY_TAG(block);
 	boundary->isAllocated = block->isAllocated;
 	boundary->size = block->size;
-	boundary->requestedSize = block->requestedSize;
+	boundary->alignmentOffset = block->alignmentOffset;
 	boundary->crc = block->crc;
 }
 
@@ -372,22 +378,22 @@ bool isBlockValid(memory_blockInfo_t* block){
 bool isBlockCRCValid(memory_blockInfo_t* block){
 	memory_blockInfo_t* boundary = GET_BOUNDARY_TAG(block);
 	const uint8_t* crcData = (const uint8_t*)block;
-	uint32_t headerCrc = crc32_sw_calculate(crcData, sizeof(uint32_t) * 2);
+	uint16_t headerCrc = crc16_sw_calculate(crcData, sizeof(uint32_t) + sizeof(uint16_t));
 	crcData = (const uint8_t*)boundary;
-	uint32_t boundaryCrc = crc32_sw_calculate(crcData, sizeof(uint32_t) * 2);
+	uint16_t boundaryCrc = crc16_sw_calculate(crcData, sizeof(uint32_t) + sizeof(uint16_t));
 	return (block->crc == headerCrc) && (boundary->crc == boundaryCrc) && (headerCrc == boundaryCrc);
 }
 
 bool isBlockHeaderCRCValid(memory_blockInfo_t* block){
 	const uint8_t* crcData = (const uint8_t*)block;
-	uint32_t crc = crc32_sw_calculate(crcData, sizeof(uint32_t) * 2);
+	uint16_t crc = crc16_sw_calculate(crcData, sizeof(uint32_t) + sizeof(uint16_t));
 	return block->crc == crc;
 }
 
 bool isBlockBoundaryCRCValid(memory_blockInfo_t* block){
 	memory_blockInfo_t* boundary = GET_BOUNDARY_TAG(block);
 	const uint8_t* crcData = (const uint8_t*)boundary;
-	uint32_t crc = crc32_sw_calculate(crcData, sizeof(uint32_t) * 2);
+	uint16_t crc = crc16_sw_calculate(crcData, sizeof(uint32_t) + sizeof(uint16_t));
 	return block->crc == crc;
 }
 
