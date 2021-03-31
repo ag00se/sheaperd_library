@@ -34,8 +34,6 @@
 
 #include <sheap.h>
 
-#define BYTE_TO_WORD(size) (size / sizeof(uint32_t))
-
 #define PAYLOAD_BLOCK_TO_MEMORY_BLOCK(payload) 	((memory_blockInfo_t*)payload) - 1
 #define GET_NEXT_MEMORY_BLOCK(block) 			(memory_blockInfo_t*)	(((uint8_t*)block) + 2 * sizeof(memory_blockInfo_t) + block->size)
 #define GET_PREV_MEMORY_BLOCK(block)			(memory_blockInfo_t*)	(((uint8_t*)block) - 2 * sizeof(memory_blockInfo_t) - GET_SIZE_OF_PREV_BLOCK(block))
@@ -44,17 +42,6 @@
 #define GET_SIZE_OF_PREV_BLOCK(block)			(block - 1)->size
 
 #define GET_R1(r1_val)							asm ("mov %0, r1" : "=r" (r1_val))
-
-typedef struct{
-	uint8_t* 	heapMin;
-	uint8_t* 	heapMax;
-	uint32_t 	currentAllocations;
-	uint32_t 	totalBytesAllocated;
-	uint32_t	userDataAllocatedAlligned;
-	uint32_t	userDataAllocated;
-	size_t 		size;
-} heap_t;
-
 
 #pragma pack(1)
 typedef struct memory_blockInfo_t memory_blockInfo_t;
@@ -68,6 +55,11 @@ typedef struct memory_blockInfo_t{
 } memory_blockInfo_t;
 #pragma pack()
 
+typedef enum{
+	MEMORY_OP_ALLOC,
+	MEMORY_OP_FREE
+} memory_operation_t;
+
 #ifdef SHEAPERD_CMSIS_2
 	static osMutexId_t gMemMutex_id;
 	static const osMutexAttr_t memMutex_attr = {
@@ -79,7 +71,7 @@ typedef struct memory_blockInfo_t{
 #endif
 
 static memory_blockInfo_t* gStartBlock;
-static heap_t gHeap;
+static sheap_heap_t gHeap;
 static uint32_t gProgramCounters[SHEAPERD_SHEAP_PC_LOG_SIZE];
 static uint32_t gCurrentPCIndex;
 
@@ -102,6 +94,8 @@ static void clearBlockBoundary(memory_blockInfo_t* block);
 static bool isBlockHeaderCRCValid(memory_blockInfo_t* block);
 static bool isBlockBoundaryCRCValid(memory_blockInfo_t* block);
 static bool	checkForIllegalWrite(memory_blockInfo_t* block);
+static void errorCallback(sheap_error_t error);
+static void updateHeapStatistics(memory_operation_t op, uint32_t allocations, uint32_t sizeAligned, uint32_t size, uint32_t blockSize);
 
 void sheap_registerErrorCallback(sheap_errorCallback_t callback){
 	gErrorCallback = callback;
@@ -130,6 +124,9 @@ void sheap_init(uint32_t* heapStart, size_t size){
 	updateBlockHeader(gStartBlock, gHeap.size - 2 * sizeof(memory_blockInfo_t), 0, false);
 	updateBlockBoundary(gStartBlock);
 #ifdef SHEAPERD_CMSIS_2
+	if(gMemMutex_id != NULL){
+		osMutexDelete(gMemMutex_id);
+	}
 	gMemMutex_id = osMutexNew(&memMutex_attr);
 	SHEAPERD_ASSERT("Mutex creation for sheap init failed.", gMemMutex_id != NULL);
 #endif
@@ -181,22 +178,22 @@ memory_blockInfo_t* getNextFreeBlockOfSize(size_t size){
 		current = GET_NEXT_MEMORY_BLOCK(current);
 	}
 	if(current == NULL || (((uint8_t*)current) >= gHeap.heapMax)){
-		//no more memory left
+		SHEAPERD_ASSERT("MEMORY Information: No memory available.", false);
 		return NULL;
 	}
 
 	if(!isBlockValid(current)){
-		//block has most likely been altered -- fault
+		SHEAPERD_ASSERT("MEMORY ERROR: Found invalid block. It may have been altered.", false);
+		errorCallback(SHEAP_ERROR_INVALID_BLOCK);
 		return NULL;
 	}
 	return current;
 }
 
-//static void sheap_coalesceBlocks();
-
 void* malloc(size_t size){
 	if(size == 0){
 		SHEAPERD_ASSERT("Cannot allocate size of 0. Is this call intentional?", false);
+		errorCallback(SHEAP_ERROR_SIZE_ZERO_ALLOC);
 		return NULL;
 	}
 	size_t sizeAligned = sheap_align(size);
@@ -210,16 +207,11 @@ void* malloc(size_t size){
 	allocate->isAllocated = true;
 	allocate->size = sizeAligned;
 	allocate->requestedSize = size;
-	gHeap.currentAllocations += 1;
-	//TODO: make statistics - own funciton
-	//	gHeap.totalBytesAllocated += ;
-	gHeap.userDataAllocatedAlligned += sizeAligned;
-	gHeap.userDataAllocated += size;
+	updateHeapStatistics(MEMORY_OP_ALLOC, 1, sizeAligned, size, GET_BLOCK_OVERHEAD_SIZE(sizeAligned));
 
 	updateCRC(allocate);
 	updateBlockBoundary(allocate);
 
-	//pointer arithmetic used to jump over the
 	uint8_t* payload = (uint8_t*)(allocate + 1);
 
 	if(preAllocSize > GET_BLOCK_OVERHEAD_SIZE(sizeAligned)){
@@ -233,50 +225,46 @@ void* malloc(size_t size){
 void free(void* ptr){
 	if(ptr == NULL){
 		SHEAPERD_ASSERT("MEMORY ERROR: Free operation not valid for null pointer", false);
-		gErrorCallback(SHEAP_ERROR_NULL_FREE);
+		errorCallback(SHEAP_ERROR_NULL_FREE);
 		return;
 	}
 	memory_blockInfo_t* current = PAYLOAD_BLOCK_TO_MEMORY_BLOCK(ptr);
 	if(current == NULL){
 		SHEAPERD_ASSERT("Cannot free the provided pointer", false);
-		gErrorCallback(SHEAP_ERROR_FREE_INVALID_POINTER);
+		errorCallback(SHEAP_ERROR_FREE_INVALID_POINTER);
 		return;
 	}
 	if(!isBlockHeaderCRCValid(current)){
 		SHEAPERD_ASSERT("MEMORY ERROR: Free operation can not be performed as block is not valid", false);
-		gErrorCallback(SHEAP_ERROR_FREE_INVALID_POINTER);
+		errorCallback(SHEAP_ERROR_FREE_INVALID_POINTER);
 		return;
 	}else if(!isBlockBoundaryCRCValid(current)){
-		SHEAPERD_ASSERT("MEMORY ERROR: Free operation can not be performed as block is not valid. It may have been altered", false);
-		gErrorCallback(SHEAP_ERROR_POSSIBLE_OUT_OF_BOUND_WRITE);
+		SHEAPERD_ASSERT("MEMORY ERROR: Free operation can not be performed as block is not valid. It may have been altered. Calling the error callback", false);
+		errorCallback(SHEAP_ERROR_POSSIBLE_OUT_OF_BOUND_WRITE);
 		return;
 	}
 
 #ifdef SHEAPERD_SHEAP_FREE_CHECK_UNALIGNED_SIZE
 	bool illegalWrite = checkForIllegalWrite(current);
 	if(illegalWrite){
-		SHEAPERD_ASSERT("MEMORY ERROR: Out of bound write detected. Free operation aborted", !illegalWrite);
-		gErrorCallback(SHEAP_ERROR_OUT_OF_BOUND_WRITE);
+		SHEAPERD_ASSERT("MEMORY ERROR: Out of bound write detected. Free operation aborted", false);
+		errorCallback(SHEAP_ERROR_OUT_OF_BOUND_WRITE);
 		return;
 	}
 #endif
 
 	if(current->isAllocated){
 		current->isAllocated = false;
-		gHeap.currentAllocations -= 1;
-		gHeap.userDataAllocatedAlligned -= current->size;
-		gHeap.userDataAllocated -= current->requestedSize;
+		updateHeapStatistics(MEMORY_OP_FREE, 1, current->size, current->requestedSize, GET_BLOCK_OVERHEAD_SIZE(current->size));
 #ifdef SHEAPERD_SHEAP_OVERWRITE_ON_FREE
 			clearMemory((uint8_t*)ptr, current->size);
 #endif
 		coalesce(&current);
 		updateCRC(current);
 		updateBlockBoundary(current);
-		//TODO: stats
-//		gHeap.totalBytesAllocated -=
 	}else{
 		SHEAPERD_ASSERT("MEMORY ERROR: Double free detected.", false);
-		gErrorCallback(SHEAP_ERROR_DOUBLE_FREE);
+		errorCallback(SHEAP_ERROR_DOUBLE_FREE);
 	}
 }
 
@@ -291,7 +279,7 @@ void coalesce(memory_blockInfo_t** block){
 			clearBlockHeader(next);
 			clearBlockBoundary(*block);
 		} else {
-			gErrorCallback(SHEAP_ERROR_COALESCING_NEXT_BLOCK_ALTERED_INVALID_CRC);
+			errorCallback(SHEAP_ERROR_COALESCING_NEXT_BLOCK_ALTERED_INVALID_CRC);
 		}
 	}
 	if (isPreviousBlockFree((*block))) {
@@ -304,7 +292,7 @@ void coalesce(memory_blockInfo_t** block){
 			(*block) = prev;
 			clearBlockBoundary(prev);
 		} else {
-			gErrorCallback(SHEAP_ERROR_COALESCING_PREV_BLOCK_ALTERED_INVALID_CRC);
+			errorCallback(SHEAP_ERROR_COALESCING_PREV_BLOCK_ALTERED_INVALID_CRC);
 		}
 	}
 	(*block)->size = size;
@@ -409,6 +397,45 @@ void clearMemory(uint8_t* ptr, size_t size){
 	}
 }
 
-size_t sheap_getAllocatedBytes(){
+void updateHeapStatistics(memory_operation_t op, uint32_t allocations, uint32_t sizeAligned, uint32_t size, uint32_t blockSize){
+	switch(op){
+		case MEMORY_OP_ALLOC:
+			gHeap.currentAllocations += allocations;
+			gHeap.userDataAllocatedAlligned += sizeAligned;
+			gHeap.userDataAllocated += size;
+			gHeap.totalBytesAllocated += blockSize;
+			break;
+		case MEMORY_OP_FREE:
+			gHeap.currentAllocations -= allocations;
+			gHeap.userDataAllocatedAlligned -= sizeAligned;
+			gHeap.userDataAllocated -= size;
+			gHeap.totalBytesAllocated -= blockSize;
+			break;
+	}
+}
+
+void sheap_getHeapStatistic(sheap_heap_t* heap){
+	if(heap != NULL){
+		heap->currentAllocations = gHeap.currentAllocations;
+		heap->heapMax = gHeap.heapMax;
+		heap->heapMin = gHeap.heapMin;
+		heap->size = gHeap.size;
+		heap->totalBytesAllocated = gHeap.totalBytesAllocated;
+		heap->userDataAllocated = gHeap.userDataAllocated;
+		heap->userDataAllocatedAlligned = gHeap.userDataAllocatedAlligned;
+	}
+}
+
+size_t sheap_getAllocatedBytesAligned(){
 	return gHeap.userDataAllocatedAlligned;
+}
+
+size_t sheap_getAllocatedBytes(){
+	return gHeap.userDataAllocated;
+}
+
+void errorCallback(sheap_error_t error){
+	if(gErrorCallback != NULL){
+		gErrorCallback(error);
+	}
 }

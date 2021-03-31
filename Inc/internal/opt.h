@@ -57,4 +57,7 @@ void* _sbrk(ptrdiff_t incr);
 #define SHEAPERD_CRC32_POLY				0x04C11DB7
 #define SHEAPERD_CRC32_XOR_OUT			0xFFFFFFFF
 
+#define SHEAPERD_CRC16_POLY				0x1021
+#define SHEAPERD_CRC16_XOR_OUT			0x0000
+
 #endif /* INTERNAL_OPT_H_ */

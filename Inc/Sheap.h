@@ -39,7 +39,6 @@ do {																							\
 	}																							\
 } while(0)
 
-
 #define SHEAP_FREE(pVoid)																			\
 do {																								\
 	register long r0 asm ("r0") = (long)pVoid;			/* Store the pointer to free in r0		*/	\
@@ -49,9 +48,21 @@ do {																								\
 		);																							\
 } while(0)
 
+typedef struct{
+	uint8_t* 	heapMin;
+	uint8_t* 	heapMax;
+	uint32_t 	currentAllocations;
+	uint32_t 	totalBytesAllocated;
+	uint32_t	userDataAllocatedAlligned;
+	uint32_t	userDataAllocated;
+	size_t 		size;
+} sheap_heap_t;
+
 typedef enum {
+	SHEAP_ERROR_INVALID_BLOCK,
 	SHEAP_ERROR_DOUBLE_FREE,
 	SHEAP_ERROR_NULL_FREE,
+	SHEAP_ERROR_SIZE_ZERO_ALLOC,
 	SHEAP_ERROR_OUT_OF_BOUND_WRITE,
 	SHEAP_ERROR_POSSIBLE_OUT_OF_BOUND_WRITE,
 	SHEAP_ERROR_FREE_INVALID_POINTER,
@@ -71,6 +82,8 @@ void* malloc(size_t size);
 void free(void* ptr);
 size_t sheap_getHeapSize();
 size_t sheap_getAllocatedBytesAligned();
+size_t sheap_getAllocatedBytes();
+void sheap_getHeapStatistic(sheap_heap_t* heap);
 
 /**
  * Align the the size to a multiple of a predefined size
