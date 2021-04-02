@@ -1,13 +1,13 @@
 /** @file sheap.c
  *  @brief Provides a secure heap (sheap) implementations.
  *
- *	Memory block layout:
+ *  Memory block layout:
  *  +------------------------+------------+------------+---------------------------------------------+------------------------+------------+------------+
+ *  |                        |            |            |                                             |                        |            |            |
+ *  |      aligned size      |  alignment |   CRC16    |                  PAYLOAD                    |      aligned size      |  alignment |   CRC16    |
+ *  |       alloc flag       |   offset   |            |                 USER DATA                   |       alloc flag       |   offset   |            |
  *	|                        |            |            |                                             |                        |            |            |
- *	|      aligned size      |  alignment |   CRC16    |                  PAYLOAD                    |      aligned size      |  alignment |   CRC16    |
- *	|       alloc flag       |   offset   |		 	   |                 USER DATA                   |       alloc flag       |   offset   |            |
- *	|                        |            |            |                                             |                        |            |            |
- *	+------------------------+------------+------------+---------------------------------------------+------------------------+-------------------------+
+ *  +------------------------+------------+------------+---------------------------------------------+------------------------+-------------------------+
  *  ^-- 4 bytes              ^-- 2 bytes  ^-- 2 bytes  ^-- aligned size bytes                        ^-- 4bytes               ^-- 2 bytes  ^-- 2 bytes
  *
  *
