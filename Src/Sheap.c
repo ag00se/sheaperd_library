@@ -46,6 +46,23 @@
 
 #define GET_R1(r1_val)							asm ("mov %0, r1" : "=r" (r1_val))
 
+#define REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, errorType)	\
+do{																			\
+	SHEAPERD_ASSERT(assertMsg, false);										\
+	errorCallback(errorType);												\
+	releaseMutex();															\
+}while(0)
+#define REPORT_ERROR_RELEASE_MUTEX_AND_RETURN(assertMsg, errorType)		\
+do{																		\
+	REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, errorType);				\
+	return;																\
+}while(0)
+#define REPORT_ERROR_RELEASE_MUTEX_AND_RETURN_NULL(assertMsg, errorType)	\
+do{																			\
+	REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, errorType);					\
+	return NULL;															\
+}while(0)
+
 #pragma pack(1)
 typedef struct memory_blockInfo_t{
 	uint32_t 			isAllocated : 1;
@@ -97,6 +114,10 @@ static bool	checkForIllegalWrite(memory_blockInfo_t* block);
 static void errorCallback(sheap_error_t error);
 static void updateHeapStatistics(memory_operation_t op, uint32_t allocations, uint32_t sizeAligned, uint32_t size, uint32_t blockSize);
 
+static void initMutex();
+static bool acquireMutex();
+static bool releaseMutex();
+
 void sheap_registerErrorCallback(sheap_errorCallback_t callback){
 	gErrorCallback = callback;
 }
@@ -123,13 +144,7 @@ void sheap_init(uint32_t* heapStart, size_t size){
 	gStartBlock = (memory_blockInfo_t*) gHeap.heapMin;
 	updateBlockHeader(gStartBlock, gHeap.size - 2 * sizeof(memory_blockInfo_t), 0, false);
 	updateBlockBoundary(gStartBlock);
-#ifdef SHEAPERD_CMSIS_2
-	if(gMemMutex_id != NULL){
-		osMutexDelete(gMemMutex_id);
-	}
-	gMemMutex_id = osMutexNew(&memMutex_attr);
-	SHEAPERD_ASSERT("Mutex creation for sheap init failed.", gMemMutex_id != NULL);
-#endif
+	initMutex();
 }
 
 void* sheap_malloc_impl(){
@@ -144,6 +159,9 @@ void* sheap_malloc_impl(){
 	}
 	uint32_t pc;
 	GET_R1(pc);
+	if(!acquireMutex()){
+		return NULL;
+	}
 	sheap_logAccess(pc);
 	return (void*)malloc(s);
 }
@@ -156,6 +174,9 @@ void sheap_free_impl(){
 	//---------------------------------
 	uint32_t pc;
 	GET_R1(pc);
+	if(!acquireMutex()){
+		return;
+	}
 	sheap_logAccess(pc);
 	free((void*) pFree);
 }
@@ -179,6 +200,7 @@ memory_blockInfo_t* getNextFreeBlockOfSize(size_t size){
 	}
 	if(current == NULL || (((uint8_t*)current) >= gHeap.heapMax)){
 		SHEAPERD_ASSERT("MEMORY Information: No memory available.", false);
+		errorCallback(SHEAP_ERROR_OUT_OF_MEMORY);
 		return NULL;
 	}
 
@@ -192,14 +214,13 @@ memory_blockInfo_t* getNextFreeBlockOfSize(size_t size){
 
 void* malloc(size_t size){
 	if(size == 0){
-		SHEAPERD_ASSERT("Cannot allocate size of 0. Is this call intentional?", false);
-		errorCallback(SHEAP_ERROR_SIZE_ZERO_ALLOC);
-		return NULL;
+		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN_NULL("Cannot allocate size of 0. Is this call intentional?", SHEAP_ERROR_SIZE_ZERO_ALLOC);
 	}
 	size_t sizeAligned = sheap_align(size);
 	memory_blockInfo_t* allocate = getNextFreeBlockOfSize(sizeAligned);
 
 	if(allocate == NULL){
+		releaseMutex();
 		return NULL;
 	}
 
@@ -219,50 +240,42 @@ void* malloc(size_t size){
 		updateBlockHeader(remainingBlock, preAllocSize - GET_BLOCK_OVERHEAD_SIZE(sizeAligned), 0, false);
 		updateBlockBoundary(remainingBlock);
 	}
+	releaseMutex();
     return payload;
 }
 
 void free(void* ptr){
 	if(ptr == NULL){
-		SHEAPERD_ASSERT("MEMORY ERROR: Free operation not valid for null pointer", false);
-		errorCallback(SHEAP_ERROR_NULL_FREE);
-		return;
+		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN("MEMORY ERROR: Free operation not valid for null pointer", SHEAP_ERROR_NULL_FREE);
 	}
-	if(ptr < gHeap.heapMin || ptr > gHeap.heapMax){
-		SHEAPERD_ASSERT("Cannot free pointer outside of heap.", false);
-		errorCallback(SHEAP_ERROR_FREE_PTR_NOT_IN_HEAP);
-		return;
+	if(ptr < (void*)gHeap.heapMin || ptr > (void*)gHeap.heapMax){
+		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN("Cannot free pointer outside of heap.", SHEAP_ERROR_FREE_PTR_NOT_IN_HEAP);
 	}
 	memory_blockInfo_t* current = PAYLOAD_BLOCK_TO_MEMORY_BLOCK(ptr);
 	if(current == NULL){
-		SHEAPERD_ASSERT("Cannot free the provided pointer", false);
-		errorCallback(SHEAP_ERROR_FREE_INVALID_HEADER);
-		return;
+		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN("Cannot free the provided pointer", SHEAP_ERROR_FREE_INVALID_HEADER);
 	}
 	if(!isBlockHeaderCRCValid(current)){
-		SHEAPERD_ASSERT("MEMORY ERROR: Free operation can not be performed as block header is not valid", false);
-		errorCallback(SHEAP_ERROR_FREE_INVALID_HEADER);
-		return;
+		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN("MEMORY ERROR: Free operation can not be performed as block header is not valid",
+				SHEAP_ERROR_FREE_INVALID_HEADER);
 	}else if(!isBlockBoundaryCRCValid(current)){
-		SHEAPERD_ASSERT("MEMORY ERROR: Free operation can not be performed as block boundary is not valid. It may have been altered. Calling the error callback", false);
-		errorCallback(SHEAP_ERROR_FREE_INVALID_BOUNDARY_POSSIBLE_OUT_OF_BOUND_WRITE);
-		return;
+		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN("MEMORY ERROR: Free operation can not be performed as block boundary is not valid. It may have been altered. Calling the error callback",
+				SHEAP_ERROR_FREE_INVALID_BOUNDARY_POSSIBLE_OUT_OF_BOUND_WRITE);
 	}
 
 #ifdef SHEAPERD_SHEAP_FREE_CHECK_UNALIGNED_SIZE
 	bool illegalWrite = checkForIllegalWrite(current);
 	if(illegalWrite){
-		SHEAPERD_ASSERT("MEMORY ERROR: Out of bound write detected. Free operation aborted", false);
-		errorCallback(SHEAP_ERROR_OUT_OF_BOUND_WRITE);
-		return;
+		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN("MEMORY ERROR: Out of bound write detected. Free operation aborted", SHEAP_ERROR_OUT_OF_BOUND_WRITE);
 	}
 #endif
 
 	if(current->isAllocated){
 		current->isAllocated = false;
 		updateHeapStatistics(MEMORY_OP_FREE, 1, current->size, current->size - current->alignmentOffset, GET_BLOCK_OVERHEAD_SIZE(current->size));
+
 #ifdef SHEAPERD_SHEAP_OVERWRITE_ON_FREE
-			clearMemory((uint8_t*)ptr, current->size);
+		clearMemory((uint8_t*)ptr, current->size);
 #endif
 		coalesce(&current);
 		updateCRC(current);
@@ -271,6 +284,7 @@ void free(void* ptr){
 		SHEAPERD_ASSERT("MEMORY ERROR: Double free detected.", false);
 		errorCallback(SHEAP_ERROR_DOUBLE_FREE);
 	}
+	releaseMutex();
 }
 
 void coalesce(memory_blockInfo_t** block){
@@ -315,7 +329,7 @@ uint32_t sheap_getLatestAllocationPCs(uint32_t destination[], uint32_t n){
 
 bool checkForIllegalWrite(memory_blockInfo_t* block){
 	uint8_t* pPayload = ((uint8_t*)(block + 1)) + block->alignmentOffset;
-	size_t alignment = block->size - block->alignmentOffset;
+	size_t alignment = block->alignmentOffset == 0 ? 0 : block->size - block->alignmentOffset;
 	for(int i = 0; i < alignment; i++){
 		if(pPayload[i] != SHEAPERD_SHEAP_OVERWRITE_VALUE){
 			return true;
@@ -418,6 +432,51 @@ void updateHeapStatistics(memory_operation_t op, uint32_t allocations, uint32_t 
 			gHeap.totalBytesAllocated -= blockSize;
 			break;
 	}
+}
+
+void initMutex(){
+#ifdef SHEAPERD_CMSIS_2
+	if(gMemMutex_id != NULL){
+		osMutexDelete(gMemMutex_id);
+	}
+	gMemMutex_id = osMutexNew(&memMutex_attr);
+	SHEAPERD_ASSERT("Mutex creation for sheap init failed.", gMemMutex_id != NULL);
+	if(gMemMutex_id == NULL){
+		gErrorCallback(SHEAP_ERROR_MUTEX_CREATION_FAILED);
+	}
+#endif
+}
+
+bool acquireMutex(){
+#ifdef SHEAPERD_CMSIS_2
+	if(gMemMutex_id == NULL){
+    	SHEAPERD_ASSERT("MEMORY Information: No mutex available. Consider undefining 'SHEAPERD_CMSIS_2' if no mutex is needed.", false);
+    	gErrorCallback(SHEAP_ERROR_MUTEX_IS_NULL);
+    	return false;
+	}
+	osStatus_t status = osMutexAcquire(gMemMutex_id, SHEAPERD_SHEAP_MUTEX_WAIT_TICKS);
+    if (status != osOK)  {
+    	gErrorCallback(SHEAP_ERROR_MUTEX_ACQUIRE_FAILED);
+    	return false;
+    }
+#endif
+    return true;
+}
+
+bool releaseMutex(){
+#ifdef SHEAPERD_CMSIS_2
+	if (gMemMutex_id == NULL) {
+    	SHEAPERD_ASSERT("MEMORY Information: No mutex available. Consider undefining 'SHEAPERD_CMSIS_2' if no mutex is needed.", false);
+    	gErrorCallback(SHEAP_ERROR_MUTEX_IS_NULL);
+    	return false;
+	}
+	osStatus_t status = osMutexRelease(gMemMutex_id);
+	if (status != osOK) {
+    	gErrorCallback(SHEAP_ERROR_MUTEX_RELEASE_FAILED);
+    	return false;
+	}
+#endif
+	return true;
 }
 
 void sheap_getHeapStatistic(sheap_heap_t* heap){

@@ -29,23 +29,29 @@
 do {																							\
 	if(ASSERT_TYPE(size_t, size)){																\
 		size_t s = size;																		\
+		register uint32_t lr asm ("lr");				/* Backup lr 						*/	\
+		uint32_t lrBackup = lr;							/* Backup lr 						*/	\
 		__asm volatile("mov r0, %0\n\t" : "=r" (s));	/* Store the size in r0				*/	\
 		__asm volatile(																			\
 				"mov r1, pc				\n" 			/* Store the pc in r1				*/	\
 				"bl sheap_malloc_impl"					/* Branch to malloc implementation	*/	\
 		);																						\
 		register int* pAlloc asm ("r0");														\
-		pVoid = pAlloc;																			\
+		lr = lrBackup;									/* Restore lr						*/	\
+		pVoid = (void*)pAlloc;																	\
 	}																							\
 } while(0)
 
-#define SHEAP_FREE(pVoid)																			\
-do {																								\
-	register long r0 asm ("r0") = (long)pVoid;			/* Store the pointer to free in r0		*/	\
-	__asm volatile(																					\
-				"mov r1, pc				\n" 			/* Store the pc in r1					*/	\
-				"bl sheap_free_impl"					/* Branch to malloc implementation		*/	\
-		);																							\
+#define SHEAP_FREE(pVoid)																		\
+do {																							\
+	register long r0 asm ("r0") = (long)pVoid;			/* Store the pointer to free in r0	*/	\
+	register uint32_t lr asm ("lr");					/* Backup lr 						*/	\
+	uint32_t lrBackup = lr;								/* Backup lr 						*/	\
+	__asm volatile(																				\
+				"mov r1, pc				\n" 			/* Store the pc in r1				*/	\
+				"bl sheap_free_impl"					/* Branch to malloc implementation	*/	\
+		);																						\
+	lr = lrBackup;										/* Restore lr						*/	\
 } while(0)
 
 typedef struct{
@@ -70,13 +76,16 @@ typedef enum {
 	SHEAP_ERROR_FREE_BLOCK_ALTERED_CRC_INVALID,
 	SHEAP_ERROR_COALESCING_NEXT_BLOCK_ALTERED_INVALID_CRC,
 	SHEAP_ERROR_COALESCING_PREV_BLOCK_ALTERED_INVALID_CRC,
-	SHEAP_ERROR_OUT_OF_MEMORY
+	SHEAP_ERROR_OUT_OF_MEMORY,
+	SHEAP_ERROR_MUTEX_CREATION_FAILED,
+	SHEAP_ERROR_MUTEX_IS_NULL,
+	SHEAP_ERROR_MUTEX_ACQUIRE_FAILED,
+	SHEAP_ERROR_MUTEX_RELEASE_FAILED
 } sheap_error_t;
 
 
 typedef void (*sheap_errorCallback_t)(sheap_error_t error);
 
-void sheap_init(uint32_t* heapStart, size_t size);
 void sheap_registerErrorCallback(sheap_errorCallback_t callback);
 void* sheap_malloc_impl();
 void sheap_free_impl();
@@ -86,6 +95,12 @@ size_t sheap_getHeapSize();
 size_t sheap_getAllocatedBytesAligned();
 size_t sheap_getAllocatedBytes();
 void sheap_getHeapStatistic(sheap_heap_t* heap);
+
+/**
+ * Initializes the sheap allocator
+ * ATTENTION: this function must be called before the scheduler is started
+ */
+void sheap_init(uint32_t* heapStart, size_t size);
 
 /**
  * Align the the size to a multiple of a predefined size

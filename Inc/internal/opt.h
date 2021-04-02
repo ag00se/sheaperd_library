@@ -49,6 +49,9 @@ void* _sbrk(ptrdiff_t incr);
 	#define SHEAPERD_SHEAP_OVERWRITE_ON_FREE			1
 #endif
 #define SHEAPERD_SHEAP_OVERWRITE_VALUE				0xFF
+#ifndef SHEAPERD_SHEAP_MUTEX_WAIT_TICKS
+	#define SHEAPERD_SHEAP_MUTEX_WAIT_TICKS				100
+#endif
 
 //TODO: implement these logic in sheap.c
 #define SHEAPERD_SHEAP_CHECK_ALL_BLOCKS_ON_FREE		0
