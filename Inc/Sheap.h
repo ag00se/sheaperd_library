@@ -25,33 +25,33 @@
 *    the result to.
 *    This macro records the pc of the caller for debugging purpose.
 */
-#define SHEAP_MALLOC(size, pVoid)																\
-do {																							\
-	if(ASSERT_TYPE(size_t, size)){																\
-		size_t s = size;																		\
-		register uint32_t lr asm ("lr");				/* Backup lr 						*/	\
-		uint32_t lrBackup = lr;							/* Backup lr 						*/	\
-		__asm volatile("mov r0, %0\n\t" : "=r" (s));	/* Store the size in r0				*/	\
-		__asm volatile(																			\
-				"mov r1, pc				\n" 			/* Store the pc in r1				*/	\
-				"bl sheap_malloc_impl"					/* Branch to malloc implementation	*/	\
-		);																						\
-		register int* pAlloc asm ("r0");														\
-		lr = lrBackup;									/* Restore lr						*/	\
-		pVoid = (void*)pAlloc;																	\
-	}																							\
+#define SHEAP_MALLOC(size, pVoid)                                                               \
+do {                                                                                            \
+	if(ASSERT_TYPE(size_t, size)){                                                              \
+		size_t s = size;                                                                        \
+		register uint32_t lr asm ("lr");                /* Backup lr                        */  \
+		uint32_t lrBackup = lr;                         /* Backup lr                        */  \
+		__asm volatile("mov r0, %0\n\t" : "=r" (s));    /* Store the size in r0             */  \
+		__asm volatile(                                                                         \
+				"mov r1, pc\n"                          /* Store the pc in r1               */  \
+				"bl sheap_malloc_impl"                  /* Branch to malloc implementation  */  \
+		);                                                                                      \
+		register int* pAlloc asm ("r0");                                                        \
+		lr = lrBackup;                                  /* Restore lr                       */  \
+		pVoid = (void*)pAlloc;                                                                  \
+	}                                                                                           \
 } while(0)
 
-#define SHEAP_FREE(pVoid)																		\
-do {																							\
-	register long r0 asm ("r0") = (long)pVoid;			/* Store the pointer to free in r0	*/	\
-	register uint32_t lr asm ("lr");					/* Backup lr 						*/	\
-	uint32_t lrBackup = lr;								/* Backup lr 						*/	\
-	__asm volatile(																				\
-				"mov r1, pc				\n" 			/* Store the pc in r1				*/	\
-				"bl sheap_free_impl"					/* Branch to malloc implementation	*/	\
-		);																						\
-	lr = lrBackup;										/* Restore lr						*/	\
+#define SHEAP_FREE(pVoid)                                                                       \
+do {                                                                                            \
+	register long r0 asm ("r0") = (long)pVoid;          /* Store the pointer to free in r0  */  \
+	register uint32_t lr asm ("lr");                    /* Backup lr                        */  \
+	uint32_t lrBackup = lr;                             /* Backup lr                        */  \
+	__asm volatile(                                                                             \
+				"mov r1, pc\n"                          /* Store the pc in r1               */  \
+				"bl sheap_free_impl"                    /* Branch to malloc implementation  */  \
+		);                                                                                      \
+	lr = lrBackup;                                      /* Restore lr                       */  \
 } while(0)
 
 typedef struct{

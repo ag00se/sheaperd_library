@@ -3,12 +3,12 @@
  *
  *	Memory block layout:
  *  +------------------------+------------+------------+---------------------------------------------+------------------------+------------+------------+
- *	|  						 |			  |			   |						    				 |						  |			   |			|
+ *	|                        |            |            |                                             |                        |            |            |
  *	|      aligned size      |  alignment |   CRC16    |                  PAYLOAD                    |      aligned size      |  alignment |   CRC16    |
- *	|       alloc flag       |   offset   |		 	   |                 USER DATA                   |       alloc flag       |   offset   |		 	|
- *	|  						 |			  |			   |						    				 |						  |			   |			|
+ *	|       alloc flag       |   offset   |		 	   |                 USER DATA                   |       alloc flag       |   offset   |            |
+ *	|                        |            |            |                                             |                        |            |            |
  *	+------------------------+------------+------------+---------------------------------------------+------------------------+-------------------------+
- *  ^-- 4 bytes    			 ^-- 2 bytes  ^-- 2 bytes  ^-- aligned size bytes						 ^-- 4bytes     		  ^-- 2 bytes  ^-- 2 bytes
+ *  ^-- 4 bytes              ^-- 2 bytes  ^-- 2 bytes  ^-- aligned size bytes                        ^-- 4bytes               ^-- 2 bytes  ^-- 2 bytes
  *
  *
  *	The memory block info stores the size of the allocated user data (payload size). As the size is aligned to at least 4 due to 'SHEAP_MINIMUM_MALLOC_SIZE'
@@ -46,21 +46,21 @@
 
 #define GET_R1(r1_val)							asm ("mov %0, r1" : "=r" (r1_val))
 
-#define REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, errorType)	\
-do{																			\
-	SHEAPERD_ASSERT(assertMsg, false);										\
-	errorCallback(errorType);												\
-	releaseMutex();															\
+#define REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, errorType)     \
+do{                                                              \
+	SHEAPERD_ASSERT(assertMsg, false);                           \
+	errorCallback(errorType);                                    \
+	releaseMutex();                                              \
 }while(0)
-#define REPORT_ERROR_RELEASE_MUTEX_AND_RETURN(assertMsg, errorType)		\
-do{																		\
-	REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, errorType);				\
-	return;																\
+#define REPORT_ERROR_RELEASE_MUTEX_AND_RETURN(assertMsg, errorType)     \
+do{                                                                     \
+	REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, errorType);               \
+	return;                                                             \
 }while(0)
-#define REPORT_ERROR_RELEASE_MUTEX_AND_RETURN_NULL(assertMsg, errorType)	\
-do{																			\
-	REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, errorType);					\
-	return NULL;															\
+#define REPORT_ERROR_RELEASE_MUTEX_AND_RETURN_NULL(assertMsg, errorType)    \
+do{                                                                         \
+	REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, errorType);                   \
+	return NULL;                                                            \
 }while(0)
 
 #pragma pack(1)
