@@ -35,7 +35,12 @@
  *  @bug No known bugs.
  */
 
-#include <sheap.h>
+#include "internal/opt.h"
+
+// don't build sheap if not enabled via options
+#if SHEAPERD_SHEAP
+
+#include "sheap.h"
 
 #define PAYLOAD_BLOCK_TO_MEMORY_BLOCK(payload) 	((memory_blockInfo_t*)payload) - 1
 #define GET_NEXT_MEMORY_BLOCK(block) 			(memory_blockInfo_t*)	(((uint8_t*)block) + 2 * sizeof(memory_blockInfo_t) + block->size)
@@ -504,3 +509,5 @@ void errorCallback(sheap_error_t error){
 		gErrorCallback(error);
 	}
 }
+
+#endif

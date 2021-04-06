@@ -14,7 +14,38 @@
 //TODO: Maybe add posix alternative?
 #ifndef SHEAPERD_CMSIS_2
 #define SHEAPERD_CMSIS_2
-#include "cmsis_os2.h"
+	#include "cmsis_os2.h"
+#endif
+
+#ifndef SHEAPERD_SHEAP
+	#define SHEAPERD_SHEAP 1
+#endif
+
+#ifndef SHEAPERD_STACK_GUARD
+	#define SHEAPERD_STACK_GUARD 	0
+	#define SHEAPERD_MPU_M0PLUS		0
+	#define SHEAPERD_MPU_M3_M4_M7	0
+	#define SHEAPERD_MPU_M23		0
+	#define	SHEAPERD_MPU_M33_M35P	0
+	#define SHEAPERD_MPU_REGIONS	0
+#endif
+
+#if SHEAPERD_MPU_M23 || SHEAPERD_MPU_M33_M35P
+	#define SHEAPERD_ARMV8			1
+#endif
+
+#if SHEAPERD_MPU_M3_M4_M7
+	#define SHEAPERD_ARMV7			1
+#endif
+
+#if SHEAPERD_MPU_M0PLUS
+	#define SHEAPERD_ARMV6			1
+#endif
+
+#ifdef SHEAPERD_STACK_GUARD
+	#ifndef SHEAPERD_MPU_MIN_REGION_SIZE
+		#define SHEAPERD_MPU_MIN_REGION_SIZE 32
+	#endif
 #endif
 
 #define ASSERT_TYPE(TYPE, VALUE) ((TYPE){ 0 } = (VALUE))

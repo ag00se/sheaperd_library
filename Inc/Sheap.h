@@ -1,5 +1,5 @@
 /** @file sheap.h
- *  @brief Provides the default options for the sheaperd library.
+ *  @brief Provides the api and and some macros for the secure heap (sheap) implementation.
  *
  *  @author JK
  *  @bug No known bugs.
@@ -18,12 +18,12 @@
 #endif
 
 
-/** \def SHEAP_MALLOC(size, pVoid)
-*    \brief Allocates the size \size on the heap and returns the pointer in pVoid \pVoid.
+/**
+* Allocates the size \size on the heap and returns the pointer in pVoid \pVoid.
 *
-*    Size \size specifies the amount of data to allocate and pVoid \pVoid is a void* to assign
-*    the result to.
-*    This macro records the pc of the caller for debugging purpose.
+* @param size 	Specifies the amount of data to allocate
+* @param pVoid  A void* to assign the result to.
+*
 */
 #define SHEAP_MALLOC(size, pVoid)                                                               \
 do {                                                                                            \
