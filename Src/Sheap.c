@@ -51,21 +51,21 @@
 
 #define GET_R1(r1_val)							asm ("mov %0, r1" : "=r" (r1_val))
 
-#define REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, errorType)     \
-do{                                                              \
-	SHEAPERD_ASSERT(assertMsg, false);                           \
-	errorCallback(errorType);                                    \
-	releaseMutex();                                              \
+#define REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, assertionType)  	\
+do{                                                             	\
+	SHEAPERD_ASSERT(assertMsg, false, assertionType);	       		\
+	/*errorCallback(errorType);*/                                  	\
+	releaseMutex();                                            		\
 }while(0)
-#define REPORT_ERROR_RELEASE_MUTEX_AND_RETURN(assertMsg, errorType)     \
-do{                                                                     \
-	REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, errorType);               \
-	return;                                                             \
+#define REPORT_ERROR_RELEASE_MUTEX_AND_RETURN(assertMsg, assertionType)			\
+do{                                                               				\
+	REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, assertionType);     	         	\
+	return;                                                        				\
 }while(0)
-#define REPORT_ERROR_RELEASE_MUTEX_AND_RETURN_NULL(assertMsg, errorType)    \
-do{                                                                         \
-	REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, errorType);                   \
-	return NULL;                                                            \
+#define REPORT_ERROR_RELEASE_MUTEX_AND_RETURN_NULL(assertMsg, assertionType)    	\
+do{                                                                         		\
+	REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, assertionType);						\
+	return NULL;                                                          			\
 }while(0)
 
 #pragma pack(1)
@@ -97,8 +97,6 @@ static sheap_heap_t gHeap;
 static uint32_t gProgramCounters[SHEAPERD_SHEAP_PC_LOG_SIZE];
 static uint32_t gCurrentPCIndex;
 
-static sheap_errorCallback_t gErrorCallback;
-
 static void sheap_logAccess();
 static memory_blockInfo_t* getNextFreeBlockOfSize(size_t size);
 static bool isBlockValid(memory_blockInfo_t* block);
@@ -116,20 +114,15 @@ static void clearBlockBoundary(memory_blockInfo_t* block);
 static bool isBlockHeaderCRCValid(memory_blockInfo_t* block);
 static bool isBlockBoundaryCRCValid(memory_blockInfo_t* block);
 static bool	checkForIllegalWrite(memory_blockInfo_t* block);
-static void errorCallback(sheap_error_t error);
 static void updateHeapStatistics(memory_operation_t op, uint32_t allocations, uint32_t sizeAligned, uint32_t size, uint32_t blockSize);
 
 static void initMutex();
 static bool acquireMutex();
 static bool releaseMutex();
 
-void sheap_registerErrorCallback(sheap_errorCallback_t callback){
-	gErrorCallback = callback;
-}
-
 void sheap_init(uint32_t* heapStart, size_t size){
 	if(size == 0){
-		SHEAPERD_ASSERT("Sheap init failed due to invalid size.", size > 0);
+		SHEAPERD_ASSERT("Sheap init failed due to invalid size.", size > 0, SHEAP_INIT_INVALID_SIZE);
 		return;
 	}
 	for(int i = 0; i < SHEAPERD_SHEAP_PC_LOG_SIZE; i++){
@@ -159,7 +152,7 @@ void* sheap_malloc_impl(){
 	size_t s = (size_t)size;
 	//--------------------------------
 	if(gHeap.heapMin == NULL){
-		SHEAPERD_ASSERT("\"SHEAP_MALLOC\" must not be used before the initialization (\"sheap_init\").", gHeap.heapMin != NULL);
+		SHEAPERD_ASSERT("\"SHEAP_MALLOC\" must not be used before the initialization (\"sheap_init\").", gHeap.heapMin != NULL, SHEAP_NOT_INITIALIZED);
 		return NULL;
 	}
 	uint32_t pc;
@@ -204,14 +197,12 @@ memory_blockInfo_t* getNextFreeBlockOfSize(size_t size){
 		current = GET_NEXT_MEMORY_BLOCK(current);
 	}
 	if(current == NULL || (((uint8_t*)current) >= gHeap.heapMax)){
-		SHEAPERD_ASSERT("MEMORY Information: No memory available.", false);
-		errorCallback(SHEAP_ERROR_OUT_OF_MEMORY);
+		SHEAPERD_ASSERT("MEMORY Information: No memory available.", false, SHEAP_OUT_OF_MEMORY);
 		return NULL;
 	}
 
 	if(!isBlockValid(current)){
-		SHEAPERD_ASSERT("MEMORY ERROR: Found invalid block. It may have been altered.", false);
-		errorCallback(SHEAP_ERROR_INVALID_BLOCK);
+		SHEAPERD_ASSERT("MEMORY ERROR: Found invalid block. It may have been altered.", false, SHEAP_ERROR_INVALID_BLOCK);
 		return NULL;
 	}
 	return current;
@@ -219,7 +210,7 @@ memory_blockInfo_t* getNextFreeBlockOfSize(size_t size){
 
 void* malloc(size_t size){
 	if(size == 0){
-		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN_NULL("Cannot allocate size of 0. Is this call intentional?", SHEAP_ERROR_SIZE_ZERO_ALLOC);
+		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN_NULL("Cannot allocate size of 0. Is this call intentional?", SHEAP_SIZE_ZERO_ALLOC);
 	}
 	size_t sizeAligned = sheap_align(size);
 	memory_blockInfo_t* allocate = getNextFreeBlockOfSize(sizeAligned);
@@ -286,8 +277,7 @@ void free(void* ptr){
 		updateCRC(current);
 		updateBlockBoundary(current);
 	}else{
-		SHEAPERD_ASSERT("MEMORY ERROR: Double free detected.", false);
-		errorCallback(SHEAP_ERROR_DOUBLE_FREE);
+		SHEAPERD_ASSERT("MEMORY ERROR: Double free detected.", false, SHEAP_ERROR_DOUBLE_FREE);
 	}
 	releaseMutex();
 }
@@ -297,26 +287,22 @@ void coalesce(memory_blockInfo_t** block){
 	if (isNextBlockFree((*block))) {
 		memory_blockInfo_t* next = GET_NEXT_MEMORY_BLOCK((*block));
 		bool isValid = isBlockValid(next);
-		SHEAPERD_ASSERT("MEMORY ERROR: Free cannot coalesce with next block as it is not valid.", isValid);
+		SHEAPERD_ASSERT("MEMORY ERROR: Free cannot coalesce with next block as it is not valid.", isValid, SHEAP_ERROR_COALESCING_NEXT_BLOCK_ALTERED_INVALID_CRC);
 		if (isValid) {
 			size += next->size + (2 * sizeof(memory_blockInfo_t));
 			clearBlockHeader(next);
 			clearBlockBoundary(*block);
-		} else {
-			errorCallback(SHEAP_ERROR_COALESCING_NEXT_BLOCK_ALTERED_INVALID_CRC);
 		}
 	}
 	if (isPreviousBlockFree((*block))) {
 		memory_blockInfo_t* prev = GET_PREV_MEMORY_BLOCK((*block));
 		bool isValid = isBlockValid(prev);
-		SHEAPERD_ASSERT("MEMORY ERROR: Free cannot coalesce with previous block as it is not valid.", isValid);
+		SHEAPERD_ASSERT("MEMORY ERROR: Free cannot coalesce with previous block as it is not valid.", isValid, SHEAP_ERROR_COALESCING_PREV_BLOCK_ALTERED_INVALID_CRC);
 		if (isValid) {
 			size += prev->size + (2 * sizeof(memory_blockInfo_t));
 			clearBlockHeader(*block);
 			(*block) = prev;
 			clearBlockBoundary(prev);
-		} else {
-			errorCallback(SHEAP_ERROR_COALESCING_PREV_BLOCK_ALTERED_INVALID_CRC);
 		}
 	}
 	(*block)->size = size;
@@ -333,10 +319,10 @@ uint32_t sheap_getLatestAllocationPCs(uint32_t destination[], uint32_t n){
 }
 
 bool checkForIllegalWrite(memory_blockInfo_t* block){
-	uint8_t* pPayload = ((uint8_t*)(block + 1)) + block->alignmentOffset;
-	size_t alignment = block->alignmentOffset == 0 ? 0 : block->size - block->alignmentOffset;
-	for(int i = 0; i < alignment; i++){
-		if(pPayload[i] != SHEAPERD_SHEAP_OVERWRITE_VALUE){
+	size_t requestedSize = block->size - block->alignmentOffset;
+	uint8_t* pAfterPayload = ((uint8_t*)(block + 1)) + requestedSize;
+	for(int i = 0; i < block->alignmentOffset; i++){
+		if(pAfterPayload[i] != SHEAPERD_SHEAP_OVERWRITE_VALUE){
 			return true;
 		}
 	}
@@ -442,12 +428,14 @@ void updateHeapStatistics(memory_operation_t op, uint32_t allocations, uint32_t 
 void initMutex(){
 #ifdef SHEAPERD_CMSIS_2
 	if(gMemMutex_id != NULL){
-		osMutexDelete(gMemMutex_id);
+		osStatus_t status = osMutexDelete(gMemMutex_id);
+		if(status != osOK){
+			SHEAPERD_ASSERT("Mutex deletion failed.", gMemMutex_id != NULL, SHEAP_ERROR_MUTEX_CREATION_FAILED);
+		}
 	}
 	gMemMutex_id = osMutexNew(&memMutex_attr);
-	SHEAPERD_ASSERT("Mutex creation for sheap init failed.", gMemMutex_id != NULL);
+	SHEAPERD_ASSERT("Mutex creation failed.", gMemMutex_id != NULL, SHEAP_ERROR_MUTEX_CREATION_FAILED);
 	if(gMemMutex_id == NULL){
-		gErrorCallback(SHEAP_ERROR_MUTEX_CREATION_FAILED);
 	}
 #endif
 }
@@ -455,13 +443,12 @@ void initMutex(){
 bool acquireMutex(){
 #ifdef SHEAPERD_CMSIS_2
 	if(gMemMutex_id == NULL){
-    	SHEAPERD_ASSERT("MEMORY Information: No mutex available. Consider undefining 'SHEAPERD_CMSIS_2' if no mutex is needed.", false);
-    	gErrorCallback(SHEAP_ERROR_MUTEX_IS_NULL);
+    	SHEAPERD_ASSERT("MEMORY Information: No mutex available. Consider undefining 'SHEAPERD_CMSIS_2' if no mutex is needed.", false, SHEAP_ERROR_MUTEX_IS_NULL);
     	return false;
 	}
 	osStatus_t status = osMutexAcquire(gMemMutex_id, SHEAPERD_SHEAP_MUTEX_WAIT_TICKS);
     if (status != osOK)  {
-    	gErrorCallback(SHEAP_ERROR_MUTEX_ACQUIRE_FAILED);
+    	SHEAPERD_ASSERT("MEMORY Information: Could not acquire mutex.", false, SHEAP_ERROR_MUTEX_ACQUIRE_FAILED);
     	return false;
     }
 #endif
@@ -471,13 +458,12 @@ bool acquireMutex(){
 bool releaseMutex(){
 #ifdef SHEAPERD_CMSIS_2
 	if (gMemMutex_id == NULL) {
-    	SHEAPERD_ASSERT("MEMORY Information: No mutex available. Consider undefining 'SHEAPERD_CMSIS_2' if no mutex is needed.", false);
-    	gErrorCallback(SHEAP_ERROR_MUTEX_IS_NULL);
+    	SHEAPERD_ASSERT("MEMORY Information: No mutex available. Consider undefining 'SHEAPERD_CMSIS_2' if no mutex is needed.", false, SHEAP_ERROR_MUTEX_IS_NULL);
     	return false;
 	}
 	osStatus_t status = osMutexRelease(gMemMutex_id);
 	if (status != osOK) {
-    	gErrorCallback(SHEAP_ERROR_MUTEX_RELEASE_FAILED);
+		SHEAPERD_ASSERT("MEMORY Information: Could not release mutex.", false, SHEAP_ERROR_MUTEX_RELEASE_FAILED);
     	return false;
 	}
 #endif
@@ -502,12 +488,6 @@ size_t sheap_getAllocatedBytesAligned(){
 
 size_t sheap_getAllocatedBytes(){
 	return gHeap.userDataAllocated;
-}
-
-void errorCallback(sheap_error_t error){
-	if(gErrorCallback != NULL){
-		gErrorCallback(error);
-	}
 }
 
 #endif

@@ -10,14 +10,6 @@
 
 #include "sheaperd.h"
 
-#ifndef SHEAP_MINIMUM_MALLOC_SIZE
-	#define SHEAP_MINIMUM_MALLOC_SIZE 		4
-#endif
-#if SHEAP_MINIMUM_MALLOC_SIZE < 4
-	#define SHEAP_MINIMUM_MALLOC_SIZE 		4
-#endif
-
-
 /**
 * Allocates the size \size on the heap and returns the pointer in pVoid \pVoid.
 *
@@ -25,33 +17,35 @@
 * @param pVoid  A void* to assign the result to.
 *
 */
-#define SHEAP_MALLOC(size, pVoid)                                                               \
-do {                                                                                            \
-	if(ASSERT_TYPE(size_t, size)){                                                              \
-		size_t s = size;                                                                        \
-		register uint32_t lr asm ("lr");                /* Backup lr                        */  \
-		uint32_t lrBackup = lr;                         /* Backup lr                        */  \
-		__asm volatile("mov r0, %0\n\t" : "=r" (s));    /* Store the size in r0             */  \
-		__asm volatile(                                                                         \
-				"mov r1, pc\n"                          /* Store the pc in r1               */  \
-				"bl sheap_malloc_impl"                  /* Branch to malloc implementation  */  \
-		);                                                                                      \
-		register int* pAlloc asm ("r0");                                                        \
-		lr = lrBackup;                                  /* Restore lr                       */  \
-		pVoid = (void*)pAlloc;                                                                  \
-	}                                                                                           \
+#define SHEAP_MALLOC(size, pVoid)                                                                \
+do {                                                                                             \
+	if(ASSERT_TYPE(size_t, size)){                                                               \
+		size_t s = size;                                                                         \
+		register uint32_t lr asm ("lr");                /* Backup lr                         */  \
+		uint32_t lrBackup = lr;                         /* Backup lr                         */  \
+		__asm volatile("mov r0, %0\n\t" : "=r" (s));    /* Store the size in r0              */  \
+		__asm volatile(                                                                          \
+				"mov r1, pc\n"                          /* Store the pc in r1                */  \
+				"bl sheap_malloc_impl"                  /* Branch to malloc implementation   */  \
+		);                                                                                       \
+		register int* pAlloc asm ("r0");                                                         \
+		lr = lrBackup;                                  /* Restore lr                        */  \
+		pVoid = (void*)pAlloc;                                                                   \
+	}                                                                                            \
 } while(0)
 
-#define SHEAP_FREE(pVoid)                                                                       \
-do {                                                                                            \
-	register long r0 asm ("r0") = (long)pVoid;          /* Store the pointer to free in r0  */  \
-	register uint32_t lr asm ("lr");                    /* Backup lr                        */  \
-	uint32_t lrBackup = lr;                             /* Backup lr                        */  \
-	__asm volatile(                                                                             \
-				"mov r1, pc\n"                          /* Store the pc in r1               */  \
-				"bl sheap_free_impl"                    /* Branch to malloc implementation  */  \
-		);                                                                                      \
-	lr = lrBackup;                                      /* Restore lr                       */  \
+#define SHEAP_FREE(pVoid)                                                                        \
+do {                                                                                             \
+	register uint32_t r0 asm ("r0") = (uint32_t)pVoid;  /* Store the pointer to free in r0   */  \
+	uint32_t r0Backup = r0;                             /* Backup r0 - avoid unused warning  */  \
+	register uint32_t lr asm ("lr");                    /* Backup lr                         */  \
+	uint32_t lrBackup = lr;                             /* Backup lr                         */  \
+	__asm volatile(                                                                              \
+				"mov r1, pc\n"                          /* Store the pc in r1                */  \
+				"bl sheap_free_impl"                    /* Branch to malloc implementation   */  \
+		);                                                                                       \
+	lr = lrBackup;                                      /* Restore lr                        */  \
+	r0 = r0Backup;                                      /* Restore r0 - avoid unused warning */  \
 } while(0)
 
 typedef struct{
@@ -64,29 +58,6 @@ typedef struct{
 	size_t 		size;
 } sheap_heap_t;
 
-typedef enum {
-	SHEAP_ERROR_INVALID_BLOCK,
-	SHEAP_ERROR_DOUBLE_FREE,
-	SHEAP_ERROR_NULL_FREE,
-	SHEAP_ERROR_SIZE_ZERO_ALLOC,
-	SHEAP_ERROR_OUT_OF_BOUND_WRITE,
-	SHEAP_ERROR_FREE_PTR_NOT_IN_HEAP,
-	SHEAP_ERROR_FREE_INVALID_BOUNDARY_POSSIBLE_OUT_OF_BOUND_WRITE,
-	SHEAP_ERROR_FREE_INVALID_HEADER,
-	SHEAP_ERROR_FREE_BLOCK_ALTERED_CRC_INVALID,
-	SHEAP_ERROR_COALESCING_NEXT_BLOCK_ALTERED_INVALID_CRC,
-	SHEAP_ERROR_COALESCING_PREV_BLOCK_ALTERED_INVALID_CRC,
-	SHEAP_ERROR_OUT_OF_MEMORY,
-	SHEAP_ERROR_MUTEX_CREATION_FAILED,
-	SHEAP_ERROR_MUTEX_IS_NULL,
-	SHEAP_ERROR_MUTEX_ACQUIRE_FAILED,
-	SHEAP_ERROR_MUTEX_RELEASE_FAILED
-} sheap_error_t;
-
-
-typedef void (*sheap_errorCallback_t)(sheap_error_t error);
-
-void sheap_registerErrorCallback(sheap_errorCallback_t callback);
 void* sheap_malloc_impl();
 void sheap_free_impl();
 void* malloc(size_t size);

@@ -14,8 +14,8 @@
 typedef enum {
 	STACKGUARD_INVALID_MPU_ADDRESS,
 	STACKGUARD_NO_MPU_REGION_LEFT,
-	STACKGUARD_NO_ERROR,
-	STACKGUARD_NO_SYNCHRONIZATION_BARRIER_CALLBACKS_PROVIDED
+	STACKGUARD_NO_SYNCHRONIZATION_BARRIER_CALLBACKS_PROVIDED,
+	STACKGUARD_NO_ERROR
 } stackguard_error_t;
 
 /**
@@ -63,8 +63,11 @@ typedef void (*stackguard_synchronization_barrier_cb)(void);
 
 /**
  * Checks if the current CORTEX-M provides a MPU and initializes it.
+ *
+ * @param dsb	Provides a callback for a data synchronization barrier
+ * @param isb	Provides a callback for a instruction synchronization barrier
  */
-Sheaperd_MPUState_t stackguard_initMPU(stackguard_synchronization_barrier_cb dsb, stackguard_synchronization_barrier_cb isb);
+sheaperd_MPUState_t stackguard_initMPU(stackguard_synchronization_barrier_cb dsb, stackguard_synchronization_barrier_cb isb);
 
 /**
  * Creates a MPU region for the provided stack pointer address and stack size.
@@ -78,5 +81,6 @@ stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, stackguard_
 stackguard_error_t stackguard_removeTask();
 
 stackguard_error_t stackguard_enableMPU();
+void stackguard_taskSwitchIn(uint32_t taskId, uint32_t* sp);
 
 #endif /* STACKGUARD_H_ */

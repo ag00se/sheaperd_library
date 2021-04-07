@@ -9,9 +9,8 @@
 #define INTERNAL_OPT_H_
 
 //included first so any user settings take precedence
-#include "Sheaperdopts.h"
+#include "sheaperdopts.h"
 
-//TODO: Maybe add posix alternative?
 #ifndef SHEAPERD_CMSIS_2
 #define SHEAPERD_CMSIS_2
 	#include "cmsis_os2.h"
@@ -42,6 +41,22 @@
 	#define SHEAPERD_ARMV6			1
 #endif
 
+#ifndef SHEAPERD_DISABLE_CORTEXM3_M4_WRITE_BUFFERING
+	#define SHEAPERD_DISABLE_CORTEXM3_M4_WRITE_BUFFERING 	1
+#endif
+
+#ifndef SHEAP_MINIMUM_MALLOC_SIZE
+	#define SHEAP_MINIMUM_MALLOC_SIZE 		4
+#endif
+#if SHEAP_MINIMUM_MALLOC_SIZE < 4
+	#define SHEAP_MINIMUM_MALLOC_SIZE 		4
+#endif
+
+#ifndef SHEAPERD_USE_SNPRINTF_ASSERT
+	#define SHEAPERD_USE_SNPRINTF_ASSERT	1
+	#define SHEAPERD_ASSERT_BUFFER_SIZE 	256
+#endif
+
 #ifdef SHEAPERD_STACK_GUARD
 	#ifndef SHEAPERD_MPU_MIN_REGION_SIZE
 		#define SHEAPERD_MPU_MIN_REGION_SIZE 32
@@ -49,25 +64,13 @@
 #endif
 
 #define ASSERT_TYPE(TYPE, VALUE) ((TYPE){ 0 } = (VALUE))
-#define SHEAPERD_ASSERT(msg, assert) 	\
-do { 									\
-	if (!(assert)) { 					\
-		SHEAPERD_PORT_ASSERT(msg);		\
-	}									\
+#define SHEAPERD_ASSERT(msg, assert, assertionType) 	\
+do { 													\
+	if (!(assert)) { 									\
+		SHEAPERD_PORT_ASSERT(msg, assertionType);		\
+	}													\
 } while(0)
 
-/** \def SHEAPERD_PORT_ASSERT(msg)
-*    \brief This macro is executed if an assert fails.
-*
-*    The msg \msg provides an error message. The user can provide a macro for SHEAPERD_PORT_ASSERT.
-*    If none is provided the message is logged via printf.
-*/
-#ifndef SHEAPERD_PORT_ASSERT
-	#define SHEAPERD_PORT_ASSERT(msg) 														\
-	do {																					\
-		printf("Assertion \"%s\" failed at line %d in %s\r\n", msg, __LINE__, __FILE__); 	\
-	} while(0)
-#endif
 
 #ifdef SHEAPERD_INERCEPT_SBRK
 void* _sbrk(ptrdiff_t incr);
