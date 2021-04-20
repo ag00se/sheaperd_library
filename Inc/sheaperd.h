@@ -20,6 +20,8 @@ typedef enum {
 	SHEAPERD_MPU_INITIALIZED
 } sheaperd_MPUState_t;
 
+#include "stackguard.h"
+
 typedef enum {
 	SHEAPERD_GENERAL_ASSERT,
 

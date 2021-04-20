@@ -57,9 +57,21 @@
 	#define SHEAPERD_ASSERT_BUFFER_SIZE 	256
 #endif
 
-#ifdef SHEAPERD_STACK_GUARD
-	#ifndef SHEAPERD_MPU_MIN_REGION_SIZE
-		#define SHEAPERD_MPU_MIN_REGION_SIZE 32
+#if SHEAPERD_STACK_GUARD
+	/**
+	 * For an explanation of the MPU registers see some documentation like:
+	 * 	+ ARMv7-M Architecture Reference Manual: https://developer.arm.com/documentation/ddi0403/latest/
+	 * 	+ https://www.st.com/resource/en/application_note/dm00272912-managing-memory-protection-unit-in-stm32-mcus-stmicroelectronics.pdf
+	 * 	+ http://ww1.microchip.com/downloads/en/AppNotes/Atmel-42128-AT02346-Using-the-MPU-on-Atmel-Cortex-M3-M4-based-Microcontroller_Application-Note.pdf
+	 */
+	#ifndef STACKGUARD_MPU_MEMORY_ATTRIBUTES_TEX_SCB
+		#define STACKGUARD_MPU_MEMORY_ATTRIBUTES_TEX_SCB 0b000110
+	#endif
+	#ifndef STACKGUARD_MPU_MEMORY_ATTRIBUTES_AP_REGION_ENABLED
+		#define STACKGUARD_MPU_MEMORY_ATTRIBUTES_AP_REGION_ENABLED 0b000
+	#endif
+	#ifndef STACKGUARD_MPU_MEMORY_ATTRIBUTES_AP_REGION_DISABLED
+		#define STACKGUARD_MPU_MEMORY_ATTRIBUTES_AP_REGION_DISABLED 0b011
 	#endif
 #endif
 
@@ -87,7 +99,7 @@ void* _sbrk(ptrdiff_t incr);
 	#define SHEAPERD_SHEAP_MUTEX_WAIT_TICKS				100
 #endif
 
-//TODO: implement these logic in sheap.c
+//TODO: implement logic in sheap.c
 #define SHEAPERD_SHEAP_CHECK_ALL_BLOCKS_ON_FREE		0
 #define SHEAPERD_SHEAP_CHECK_ALL_BLOCKS_ON_MALLOC	0
 
