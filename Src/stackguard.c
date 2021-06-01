@@ -117,9 +117,7 @@ stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, stackguard_
 
 	// 			 AP = Access permissions  					 				TEX SCB = Type extension mask (shareable, cacheable, bufferable)
 	//			 (Default: no access)        				 				(Default: 0b000110)        	    			     (Region size)      (Enable)
-	MPU->RASR = (STACKGUARD_MPU_MEMORY_ATTRIBUTES_AP_REGION_ENABLED << 24) | STACKGUARD_MPU_MEMORY_ATTRIBUTES_TEX_SCB << 16 | (stackSize << 1) | 0x1;
-	__asm volatile ("dsb 0xF":::"memory");
-	__asm volatile ("isb 0xF":::"memory");
+	MPU->RASR = (STACKGUARD_MPU_MEMORY_ATTRIBUTES_AP_REGION_DISABLED << 24) | STACKGUARD_MPU_MEMORY_ATTRIBUTES_TEX_SCB << 16 | (stackSize << 1) | 0x1;
 
 	while(gNextUnusedRegion < gNumberOfRegions && gTasksRegions[gNextUnusedRegion].taskId != -1){
 		gNextUnusedRegion++;

@@ -17,6 +17,9 @@
 * @param pVoid  A void* to assign the result to.
 *
 */
+
+
+//TODO: Store pc and provide it as function parameter instead of asm
 #define SHEAP_MALLOC(size, pVoid)                                                                \
 do {                                                                                             \
 	if(ASSERT_TYPE(size_t, size)){                                                               \
@@ -42,7 +45,7 @@ do {                                                                            
 	uint32_t lrBackup = lr;                             /* Backup lr                         */  \
 	__asm volatile(                                                                              \
 				"mov r1, pc\n"                          /* Store the pc in r1                */  \
-				"bl sheap_free_impl"                    /* Branch to malloc implementation   */  \
+				"bl sheap_free_impl"                    /* Branch to free implementation     */  \
 		);                                                                                       \
 	lr = lrBackup;                                      /* Restore lr                        */  \
 	r0 = r0Backup;                                      /* Restore r0 - avoid unused warning */  \
@@ -56,16 +59,16 @@ typedef struct{
 	uint32_t	userDataAllocatedAlligned;
 	uint32_t	userDataAllocated;
 	size_t 		size;
-} sheap_heap_t;
+} sheap_heapStat_t;
 
-void* sheap_malloc_impl();
-void sheap_free_impl();
+//void* sheap_malloc_impl();
+//void sheap_free_impl();
 void* malloc(size_t size);
 void free(void* ptr);
 size_t sheap_getHeapSize();
 size_t sheap_getAllocatedBytesAligned();
 size_t sheap_getAllocatedBytes();
-void sheap_getHeapStatistic(sheap_heap_t* heap);
+void sheap_getHeapStatistic(sheap_heapStat_t* heapStat);
 
 /**
  * Initializes the sheap allocator

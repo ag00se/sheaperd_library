@@ -1,10 +1,6 @@
 /** @file crc.c
  *  @brief Provides a primitive software crc implementation.
  *
- *	Default: CRC-32/BZIP2
- *	Polynom: 0x04C11DB7
- *	XOR-OUT: 0xFFFFFFFF
- *
  *  @author JK
  *  @bug No known bugs.
  */

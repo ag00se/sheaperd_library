@@ -1,6 +1,7 @@
 /** @file sheap.c
  *  @brief Provides a secure heap (sheap) implementations.
  *
+ *	//TODO: Add PC from malloc and free to header/boundary optional
  *  Memory block layout:
  *  +------------------------+------------+------------+---------------------------------------------+------------------------+------------+------------+
  *  |                        |            |            |                                             |                        |            |            |
@@ -54,7 +55,6 @@
 #define REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, assertionType)  	\
 do{                                                             	\
 	SHEAPERD_ASSERT(assertMsg, false, assertionType);	       		\
-	/*errorCallback(errorType);*/                                  	\
 	releaseMutex();                                            		\
 }while(0)
 #define REPORT_ERROR_RELEASE_MUTEX_AND_RETURN(assertMsg, assertionType)			\
@@ -93,7 +93,7 @@ static const osMutexAttr_t memMutex_attr = {
 #endif
 
 static memory_blockInfo_t* gStartBlock;
-static sheap_heap_t gHeap;
+static sheap_heapStat_t gHeap;
 static uint32_t gProgramCounters[SHEAPERD_SHEAP_PC_LOG_SIZE];
 static uint32_t gCurrentPCIndex;
 
@@ -192,6 +192,7 @@ size_t sheap_align(size_t n) {
 }
 
 memory_blockInfo_t* getNextFreeBlockOfSize(size_t size){
+#if SHEAPERD_SHEAP_MEMORY_ALLOCATION_STRATEGY == SHEAPERD_SHEAP_MEMORY_ALLOCATION
 	memory_blockInfo_t* current = gStartBlock;
 	while((current->isAllocated == true || current->size < size) && (((uint8_t*)current) < gHeap.heapMax)){
 		current = GET_NEXT_MEMORY_BLOCK(current);
@@ -206,6 +207,10 @@ memory_blockInfo_t* getNextFreeBlockOfSize(size_t size){
 		return NULL;
 	}
 	return current;
+#else
+	SHEAPERD_ASSERT("MEMORY ERROR: No memory allocation strategy found", false, SHEAP_CONFIG_ERROR_INVALID_ALLOCATION_STRATEGY);
+	return NULL;
+#endif
 }
 
 void* malloc(size_t size){
@@ -256,7 +261,7 @@ void free(void* ptr){
 				SHEAP_ERROR_FREE_INVALID_HEADER);
 	}else if(!isBlockBoundaryCRCValid(current)){
 		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN("MEMORY ERROR: Free operation can not be performed as block boundary is not valid. It may have been altered. Calling the error callback",
-				SHEAP_ERROR_FREE_INVALID_BOUNDARY_POSSIBLE_OUT_OF_BOUND_WRITE);
+				SHEAP_ERROR_FREE_INVALID_BOUNDARY);
 	}
 
 #ifdef SHEAPERD_SHEAP_FREE_CHECK_UNALIGNED_SIZE
@@ -458,7 +463,7 @@ bool acquireMutex(){
 bool releaseMutex(){
 #ifdef SHEAPERD_CMSIS_2
 	if (gMemMutex_id == NULL) {
-    	SHEAPERD_ASSERT("MEMORY Information: No mutex available. Consider undefining 'SHEAPERD_CMSIS_2' if no mutex is needed.", false, SHEAP_ERROR_MUTEX_IS_NULL);
+    	SHEAPERD_ASSERT("MEMORY Information: No mutex available. Consider removing the 'SHEAPERD_CMSIS_2' define if no mutex is needed.", false, SHEAP_ERROR_MUTEX_IS_NULL);
     	return false;
 	}
 	osStatus_t status = osMutexRelease(gMemMutex_id);
@@ -470,7 +475,7 @@ bool releaseMutex(){
 	return true;
 }
 
-void sheap_getHeapStatistic(sheap_heap_t* heap){
+void sheap_getHeapStatistic(sheap_heapStat_t* heap){
 	if(heap != NULL){
 		heap->currentAllocations = gHeap.currentAllocations;
 		heap->heapMax = gHeap.heapMax;
