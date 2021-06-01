@@ -145,39 +145,39 @@ void sheap_init(uint32_t* heapStart, size_t size){
 	initMutex();
 }
 
-void* sheap_malloc_impl(){
-	// Save the size from r0 before doing any other operation
-	//--------------------------------
-	register int* size asm ("r0");
-	size_t s = (size_t)size;
-	//--------------------------------
-	if(gHeap.heapMin == NULL){
-		SHEAPERD_ASSERT("\"SHEAP_MALLOC\" must not be used before the initialization (\"sheap_init\").", gHeap.heapMin != NULL, SHEAP_NOT_INITIALIZED);
-		return NULL;
-	}
-	uint32_t pc;
-	GET_R1(pc);
-	if(!acquireMutex()){
-		return NULL;
-	}
-	sheap_logAccess(pc);
-	return (void*)malloc(s);
-}
+//void* sheap_malloc_impl(){
+//	// Save the size from r0 before doing any other operation
+//	//--------------------------------
+//	register int* size asm ("r0");
+//	size_t s = (size_t)size;
+//	//--------------------------------
+//	if(gHeap.heapMin == NULL){
+//		SHEAPERD_ASSERT("\"SHEAP_MALLOC\" must not be used before the initialization (\"sheap_init\").", gHeap.heapMin != NULL, SHEAP_NOT_INITIALIZED);
+//		return NULL;
+//	}
+//	uint32_t pc;
+//	GET_R1(pc);
+//	if(!acquireMutex()){
+//		return NULL;
+//	}
+//	sheap_logAccess(pc);
+//	return (void*)malloc(s);
+//}
 
-void sheap_free_impl(){
-	// Get the pointer to free from r0
-	//---------------------------------
-	register void* ptr asm ("r0");
-	void* pFree = ptr;
-	//---------------------------------
-	uint32_t pc;
-	GET_R1(pc);
-	if(!acquireMutex()){
-		return;
-	}
-	sheap_logAccess(pc);
-	free((void*) pFree);
-}
+//void sheap_free_impl(){
+//	// Get the pointer to free from r0
+//	//---------------------------------
+//	register void* ptr asm ("r0");
+//	void* pFree = ptr;
+//	//---------------------------------
+//	uint32_t pc;
+//	GET_R1(pc);
+//	if(!acquireMutex()){
+//		return;
+//	}
+//	sheap_logAccess(pc);
+//	free((void*) pFree);
+//}
 
 void sheap_logAccess(uint32_t pc){
 	gProgramCounters[(++gCurrentPCIndex) % SHEAPERD_SHEAP_PC_LOG_SIZE] = (uint32_t)pc;
@@ -213,7 +213,17 @@ memory_blockInfo_t* getNextFreeBlockOfSize(size_t size){
 #endif
 }
 
-void* malloc(size_t size){
+void* sheap_malloc(size_t size, uint32_t pc){
+	if(gHeap.heapMin == NULL){
+		SHEAPERD_ASSERT("\"SHEAP_MALLOC\" must not be used before the initialization (\"sheap_init\").", gHeap.heapMin != NULL, SHEAP_NOT_INITIALIZED);
+		return NULL;
+	}
+	if(!acquireMutex()){
+		return NULL;
+	}
+	if(pc != 0){
+		sheap_logAccess(pc);
+	}
 	if(size == 0){
 		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN_NULL("Cannot allocate size of 0. Is this call intentional?", SHEAP_SIZE_ZERO_ALLOC);
 	}
@@ -245,7 +255,13 @@ void* malloc(size_t size){
     return payload;
 }
 
-void free(void* ptr){
+void sheap_free(void* ptr, uint32_t pc){
+	if(!acquireMutex()){
+		return;
+	}
+	if(pc != 0){
+		sheap_logAccess(pc);
+	}
 	if(ptr == NULL){
 		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN("MEMORY ERROR: Free operation not valid for null pointer", SHEAP_ERROR_NULL_FREE);
 	}

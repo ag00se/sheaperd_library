@@ -1,5 +1,5 @@
 /** @file sheap.h
- *  @brief Provides the api and and some macros for the secure heap (sheap) implementation.
+ *  @brief Provides the api for the secure heap (sheap) implementation.
  *
  *  @author JK
  *  @bug No known bugs.
@@ -17,38 +17,29 @@
 * @param pVoid  A void* to assign the result to.
 *
 */
-
-
-//TODO: Store pc and provide it as function parameter instead of asm
-#define SHEAP_MALLOC(size, pVoid)                                                                \
-do {                                                                                             \
-	if(ASSERT_TYPE(size_t, size)){                                                               \
-		size_t s = size;                                                                         \
-		register uint32_t lr asm ("lr");                /* Backup lr                         */  \
-		uint32_t lrBackup = lr;                         /* Backup lr                         */  \
-		__asm volatile("mov r0, %0\n\t" : "=r" (s));    /* Store the size in r0              */  \
-		__asm volatile(                                                                          \
-				"mov r1, pc\n"                          /* Store the pc in r1                */  \
-				"bl sheap_malloc_impl"                  /* Branch to malloc implementation   */  \
-		);                                                                                       \
-		register int* pAlloc asm ("r0");                                                         \
-		lr = lrBackup;                                  /* Restore lr                        */  \
-		pVoid = (void*)pAlloc;                                                                   \
-	}                                                                                            \
+#define SHEAP_MALLOC(size, pVoid)                                                               \
+do {                                                                                            \
+	if(ASSERT_TYPE(size_t, size)){                                                              \
+		register uint32_t r1 asm("r1");															\
+		uint32_t r1Backup = r1;																	\
+		__asm volatile("mov r1, pc\n");                /* Store the pc in r1                */  \
+		uint32_t pc;																			\
+		asm("mov %0, r1" : "=r" (pc));															\
+		size_t s = size;                                                                        \
+		pVoid = sheap_malloc(size, pc);                                                        	\
+		r1 = r1Backup;																			\
+	}                                                                                           \
 } while(0)
 
-#define SHEAP_FREE(pVoid)                                                                        \
-do {                                                                                             \
-	register uint32_t r0 asm ("r0") = (uint32_t)pVoid;  /* Store the pointer to free in r0   */  \
-	uint32_t r0Backup = r0;                             /* Backup r0 - avoid unused warning  */  \
-	register uint32_t lr asm ("lr");                    /* Backup lr                         */  \
-	uint32_t lrBackup = lr;                             /* Backup lr                         */  \
-	__asm volatile(                                                                              \
-				"mov r1, pc\n"                          /* Store the pc in r1                */  \
-				"bl sheap_free_impl"                    /* Branch to free implementation     */  \
-		);                                                                                       \
-	lr = lrBackup;                                      /* Restore lr                        */  \
-	r0 = r0Backup;                                      /* Restore r0 - avoid unused warning */  \
+#define SHEAP_FREE(pVoid)                                                                       \
+do {                                                                                            \
+	register uint32_t r1 asm("r1");																\
+	uint32_t r1Backup = r1;																		\
+	__asm volatile("mov r1, pc\n");                /* Store the pc in r1                */  	\
+	uint32_t pc;																				\
+	asm("mov %0, r1" : "=r" (pc));																\
+	sheap_free(pVoid, pc);																		\
+	r1 = r1Backup;																				\
 } while(0)
 
 typedef struct{
@@ -61,10 +52,32 @@ typedef struct{
 	size_t 		size;
 } sheap_heapStat_t;
 
-//void* sheap_malloc_impl();
-//void sheap_free_impl();
-void* malloc(size_t size);
-void free(void* ptr);
+/**
+ * Allocates memory of the requested size and provides a pointer to the memory
+ * to the caller. For best error detection support one should use the provided
+ * SHEAP_MALLOC(size, pVoid) macro.
+ * If this function is called directly the parameter pc can be set to 0. In
+ * general it is intended to record the program counter of the caller to
+ * obtain additional information.
+ * If possible use the SHEAP_MALLOC(size, pVoid) macro.
+ *
+ * @param size the size of memory to be allocated
+ * @param pc the current program counter of the caller
+ */
+void* sheap_malloc(size_t size, uint32_t pc);
+
+/**
+ * Deallocates memory associated with the provided pointer.
+ * For best error detection support one should use the provided
+ * SHEAP_FREE(pVoid) macro.
+ * If this function is called directly the parameter pc can be set to 0. In
+ * general it is intended to record the program counter of the caller to
+ * obtain additional information.
+ * If possible use the SHEAP_FREE(pVoid) macro.
+ *
+ * @param ptr the pointer associated with the memory to be freed
+ */
+void sheap_free(void* ptr, uint32_t pc);
 size_t sheap_getHeapSize();
 size_t sheap_getAllocatedBytesAligned();
 size_t sheap_getAllocatedBytes();
