@@ -22,7 +22,7 @@
  *	When freeing a block and checking if a write out of bound occurred it could only be recognized if it altered the next block. When storing the alignment offset, the user requested size can be calculated and
  *	the block can be checked if for example 5 bytes have been requested from the user, and 7 bytes have been written. In that case an error can be reported when storing the additional alignment offset.
  *
- *  This implementation provides malloc/free routines with added safty measures like:
+ *  This implementation provides malloc/free routines with added safety measures like:
  *  	+ checking double free
  *  	+ each allocated memory block has a checksum to recognize external altering / invalid access
  *  	+ each allocated memory block is suffixed with a boundary tag which can be checked on each free call to determine if a direct bound overflow happened
@@ -31,6 +31,11 @@
  *  	+ when using the provided SHEAP_MALLOC/SHEAP_FREE macros the program counter of each of these calls
  *  	  will be stored to support debugging if an error occurs (number of saved pc's can be configured
  *  	  using the SHEAPERD_DEFAULT_SHEAP_PC_LOG_SIZE define)
+ *
+ *	Optional: The sheap allocator can be configured to use an extended memory block layout during execution.
+ *	The extended layout contains an additional 4 bytes in the header which store the program counter of the calling function. The information from which line of code a memory block has been allocated or freed
+ *	can prove useful during debugging. This feature increases the memory overhead from 16 byte to 24 byte.
+ *	The pc is inserted after the aligned size/alloc flag and before the alignment offset and it is part of the CRC calculation.
  *
  *  @author JK
  *  @bug No known bugs.
@@ -68,14 +73,26 @@ do{                                                                         		\
 	return NULL;                                                          			\
 }while(0)
 
+#if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
+	#pragma pack(1)
+	typedef struct memory_blockInfo_t{
+		uint32_t 			isAllocated : 1;
+		uint32_t 			size 		: 31;
+		uint32_t			pc;
+		uint16_t			alignmentOffset;
+		uint16_t			crc;
+	} memory_blockInfo_t;
+	#pragma pack()
+#elif
 #pragma pack(1)
-typedef struct memory_blockInfo_t{
-	uint32_t 			isAllocated : 1;
-	uint32_t 			size 		: 31;
-	uint16_t			alignmentOffset;
-	uint16_t			crc;
-} memory_blockInfo_t;
-#pragma pack()
+	typedef struct memory_blockInfo_t{
+		uint32_t 			isAllocated : 1;
+		uint32_t 			size 		: 31;
+		uint16_t			alignmentOffset;
+		uint16_t			crc;
+	} memory_blockInfo_t;
+	#pragma pack()
+#endif
 
 typedef enum{
 	MEMORY_OP_ALLOC,
@@ -103,11 +120,15 @@ static bool isBlockValid(memory_blockInfo_t* block);
 static bool isBlockCRCValid(memory_blockInfo_t* block);
 static void clearMemory(uint8_t* ptr, size_t size);
 static void updateBlockBoundary(memory_blockInfo_t* block);
-static void updateBlockHeader(memory_blockInfo_t* block, size_t sizeAligned, size_t sizeRequested, bool isAllocated);
+#if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
+	static void updateBlockHeader(memory_blockInfo_t* block, size_t sizeAligned, size_t sizeRequested, bool isAllocated, uint32_t pc);
+#elif SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 0
+	static void updateBlockHeader(memory_blockInfo_t* block, size_t sizeAligned, size_t sizeRequested, bool isAllocated);
+#endif
 static void updateCRC(memory_blockInfo_t* block);
 static bool isPreviousBlockFree(memory_blockInfo_t* block);
 static bool isNextBlockFree(memory_blockInfo_t* block);
-static void coalesce(memory_blockInfo_t** block);
+static memory_blockInfo_t* coalesce(memory_blockInfo_t** block);
 static void clearBlockMeta(memory_blockInfo_t* block);
 static void clearBlockHeader(memory_blockInfo_t* block);
 static void clearBlockBoundary(memory_blockInfo_t* block);
@@ -140,44 +161,40 @@ void sheap_init(uint32_t* heapStart, size_t size){
 	clearMemory(gHeap.heapMin, size);
 
 	gStartBlock = (memory_blockInfo_t*) gHeap.heapMin;
+#if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
+	updateBlockHeader(gStartBlock, gHeap.size - 2 * sizeof(memory_blockInfo_t), 0, false, SHEAPERD_SHEAP_AUTO_CREATED_BLOCK_PC);
+#elif SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 0
 	updateBlockHeader(gStartBlock, gHeap.size - 2 * sizeof(memory_blockInfo_t), 0, false);
+#endif
 	updateBlockBoundary(gStartBlock);
 	initMutex();
 }
 
-//void* sheap_malloc_impl(){
-//	// Save the size from r0 before doing any other operation
-//	//--------------------------------
-//	register int* size asm ("r0");
-//	size_t s = (size_t)size;
-//	//--------------------------------
-//	if(gHeap.heapMin == NULL){
-//		SHEAPERD_ASSERT("\"SHEAP_MALLOC\" must not be used before the initialization (\"sheap_init\").", gHeap.heapMin != NULL, SHEAP_NOT_INITIALIZED);
-//		return NULL;
-//	}
-//	uint32_t pc;
-//	GET_R1(pc);
-//	if(!acquireMutex()){
-//		return NULL;
-//	}
-//	sheap_logAccess(pc);
-//	return (void*)malloc(s);
-//}
-
-//void sheap_free_impl(){
-//	// Get the pointer to free from r0
-//	//---------------------------------
-//	register void* ptr asm ("r0");
-//	void* pFree = ptr;
-//	//---------------------------------
-//	uint32_t pc;
-//	GET_R1(pc);
-//	if(!acquireMutex()){
-//		return;
-//	}
-//	sheap_logAccess(pc);
-//	free((void*) pFree);
-//}
+#if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
+sheap_status_t sheap_getAllocationPC(void* ptr, uint32_t* pc) {
+	if(!acquireMutex()){
+		return SHEAP_ERROR;
+	}
+	if(ptr == NULL){
+		return SHEAP_INVALID_POINTER;
+	}
+	if(ptr < (void*)gHeap.heapMin || ptr > (void*)gHeap.heapMax){
+		return SHEAP_INVALID_POINTER;
+	}
+	memory_blockInfo_t* current = PAYLOAD_BLOCK_TO_MEMORY_BLOCK(ptr);
+	if(current == NULL){
+		return SHEAP_INVALID_POINTER;
+	}
+	if(!isBlockHeaderCRCValid(current)){
+		return SHEAP_INVALID_POINTER;
+	}else if(!isBlockBoundaryCRCValid(current)){
+		return SHEAP_INVALID_POINTER;
+	}
+	*pc = current->pc;
+	releaseMutex();
+	return SHEAP_OK;
+}
+#endif
 
 void sheap_logAccess(uint32_t pc){
 	gProgramCounters[(++gCurrentPCIndex) % SHEAPERD_SHEAP_PC_LOG_SIZE] = (uint32_t)pc;
@@ -188,7 +205,7 @@ size_t sheap_getHeapSize(){
 }
 
 size_t sheap_align(size_t n) {
-	return (n + SHEAP_MINIMUM_MALLOC_SIZE - 1) & ~(SHEAP_MINIMUM_MALLOC_SIZE - 1);
+	return (n + SHEAPERD_SHEAP_MINIMUM_MALLOC_SIZE - 1) & ~(SHEAPERD_SHEAP_MINIMUM_MALLOC_SIZE - 1);
 }
 
 memory_blockInfo_t* getNextFreeBlockOfSize(size_t size){
@@ -236,8 +253,16 @@ void* sheap_malloc(size_t size, uint32_t pc){
 	}
 
 	uint32_t preAllocSize = allocate->size;
+	if(preAllocSize < GET_BLOCK_OVERHEAD_SIZE(sizeAligned) + (SHEAPERD_SHEAP_MINIMUM_MALLOC_SIZE + (2 * sizeof(memory_blockInfo_t)))){
+		// No additional block of minimum size can be created after this block, therefore take all available memory to obtain heap structure
+		sizeAligned = preAllocSize;
+	}
+
 	allocate->isAllocated = true;
 	allocate->size = sizeAligned;
+#if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
+	allocate->pc = pc;
+#endif
 	allocate->alignmentOffset = sizeAligned - size;
 	updateHeapStatistics(MEMORY_OP_ALLOC, 1, sizeAligned, size, GET_BLOCK_OVERHEAD_SIZE(sizeAligned));
 
@@ -246,9 +271,13 @@ void* sheap_malloc(size_t size, uint32_t pc){
 
 	uint8_t* payload = (uint8_t*)(allocate + 1);
 
-	if(preAllocSize > GET_BLOCK_OVERHEAD_SIZE(sizeAligned)){
+	if(allocate->size < preAllocSize){
 		memory_blockInfo_t* remainingBlock = GET_NEXT_MEMORY_BLOCK(allocate);
+#if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
+		updateBlockHeader(remainingBlock, preAllocSize - GET_BLOCK_OVERHEAD_SIZE(sizeAligned), 0, false, SHEAPERD_SHEAP_AUTO_CREATED_BLOCK_PC);
+#elif SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 0
 		updateBlockHeader(remainingBlock, preAllocSize - GET_BLOCK_OVERHEAD_SIZE(sizeAligned), 0, false);
+#endif
 		updateBlockBoundary(remainingBlock);
 	}
 	releaseMutex();
@@ -287,14 +316,19 @@ void sheap_free(void* ptr, uint32_t pc){
 	}
 #endif
 
-	if(current->isAllocated){
+	if(current->isAllocated) {
 		current->isAllocated = false;
 		updateHeapStatistics(MEMORY_OP_FREE, 1, current->size, current->size - current->alignmentOffset, GET_BLOCK_OVERHEAD_SIZE(current->size));
 
 #ifdef SHEAPERD_SHEAP_OVERWRITE_ON_FREE
 		clearMemory((uint8_t*)ptr, current->size);
 #endif
-		coalesce(&current);
+		current = coalesce(&current);
+#if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
+		current->pc = pc;
+#elif SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 0
+		current->pc = SHEAPERD_SHEAP_AUTO_CREATED_BLOCK_PC;
+#endif
 		updateCRC(current);
 		updateBlockBoundary(current);
 	}else{
@@ -303,7 +337,7 @@ void sheap_free(void* ptr, uint32_t pc){
 	releaseMutex();
 }
 
-void coalesce(memory_blockInfo_t** block){
+memory_blockInfo_t* coalesce(memory_blockInfo_t** block){
 	size_t size = (*block)->size;
 	if (isNextBlockFree((*block))) {
 		memory_blockInfo_t* next = GET_NEXT_MEMORY_BLOCK((*block));
@@ -328,6 +362,7 @@ void coalesce(memory_blockInfo_t** block){
 	}
 	(*block)->size = size;
 	(*block)->alignmentOffset = 0;
+	return *block;
 }
 
 uint32_t sheap_getLatestAllocationPCs(uint32_t destination[], uint32_t n){
@@ -378,21 +413,34 @@ bool isNextBlockFree(memory_blockInfo_t* block){
 
 void updateCRC(memory_blockInfo_t* block){
 	const uint8_t* crcData = (const uint8_t*)block;
-	block->crc = crc16_sw_calculate(crcData, sizeof(uint32_t) + sizeof(uint16_t));
+	block->crc = crc16_sw_calculate(crcData, sizeof(memory_blockInfo_t) - sizeof(uint16_t));
 }
 
+#if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
+void updateBlockHeader(memory_blockInfo_t* block, size_t sizeAligned, size_t sizeRequested, bool isAllocated, uint32_t pc){
+	block->isAllocated = isAllocated;
+	block->size = sizeAligned;
+	block->pc = pc;
+	block->alignmentOffset = sizeRequested == 0 ? 0 : sizeAligned - sizeRequested;
+	updateCRC(block);
+}
+#elif SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 0
 void updateBlockHeader(memory_blockInfo_t* block, size_t sizeAligned, size_t sizeRequested, bool isAllocated){
 	block->isAllocated = isAllocated;
 	block->size = sizeAligned;
 	block->alignmentOffset = sizeRequested == 0 ? 0 : sizeAligned - sizeRequested;
 	updateCRC(block);
 }
+#endif
 
 
 void updateBlockBoundary(memory_blockInfo_t* block){
 	memory_blockInfo_t* boundary = GET_BOUNDARY_TAG(block);
 	boundary->isAllocated = block->isAllocated;
 	boundary->size = block->size;
+#if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
+	boundary->pc = block->pc;
+#endif
 	boundary->alignmentOffset = block->alignmentOffset;
 	boundary->crc = block->crc;
 }
@@ -404,22 +452,22 @@ bool isBlockValid(memory_blockInfo_t* block){
 bool isBlockCRCValid(memory_blockInfo_t* block){
 	memory_blockInfo_t* boundary = GET_BOUNDARY_TAG(block);
 	const uint8_t* crcData = (const uint8_t*)block;
-	uint16_t headerCrc = crc16_sw_calculate(crcData, sizeof(uint32_t) + sizeof(uint16_t));
+	uint16_t headerCrc = crc16_sw_calculate(crcData, sizeof(memory_blockInfo_t) - sizeof(uint16_t));
 	crcData = (const uint8_t*)boundary;
-	uint16_t boundaryCrc = crc16_sw_calculate(crcData, sizeof(uint32_t) + sizeof(uint16_t));
+	uint16_t boundaryCrc = crc16_sw_calculate(crcData, sizeof(memory_blockInfo_t) - sizeof(uint16_t));
 	return (block->crc == headerCrc) && (boundary->crc == boundaryCrc) && (headerCrc == boundaryCrc);
 }
 
 bool isBlockHeaderCRCValid(memory_blockInfo_t* block){
 	const uint8_t* crcData = (const uint8_t*)block;
-	uint16_t crc = crc16_sw_calculate(crcData, sizeof(uint32_t) + sizeof(uint16_t));
+	uint16_t crc = crc16_sw_calculate(crcData, sizeof(memory_blockInfo_t) - sizeof(uint16_t));
 	return block->crc == crc;
 }
 
 bool isBlockBoundaryCRCValid(memory_blockInfo_t* block){
 	memory_blockInfo_t* boundary = GET_BOUNDARY_TAG(block);
 	const uint8_t* crcData = (const uint8_t*)boundary;
-	uint16_t crc = crc16_sw_calculate(crcData, sizeof(uint32_t) + sizeof(uint16_t));
+	uint16_t crc = crc16_sw_calculate(crcData, sizeof(memory_blockInfo_t) - sizeof(uint16_t));
 	return block->crc == crc;
 }
 

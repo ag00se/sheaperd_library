@@ -10,6 +10,12 @@
 
 #include "sheaperd.h"
 
+typedef enum {
+	SHEAP_OK,
+	SHEAP_INVALID_POINTER,
+	SHEAP_ERROR
+} sheap_status_t;
+
 /**
 * Allocates the size \size on the heap and returns the pointer in pVoid \pVoid.
 *
@@ -82,6 +88,10 @@ size_t sheap_getHeapSize();
 size_t sheap_getAllocatedBytesAligned();
 size_t sheap_getAllocatedBytes();
 void sheap_getHeapStatistic(sheap_heapStat_t* heapStat);
+
+#if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
+sheap_status_t sheap_getAllocationPC(void* allocatedPtr, uint32_t* pc);
+#endif
 
 /**
  * Initializes the sheap allocator
