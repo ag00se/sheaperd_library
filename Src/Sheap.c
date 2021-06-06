@@ -1,7 +1,6 @@
 /** @file sheap.c
  *  @brief Provides a secure heap (sheap) implementations.
  *
- *	//TODO: Add PC from malloc and free to header/boundary optional
  *  Memory block layout:
  *  +------------------------+------------+------------+---------------------------------------------+------------------------+------------+------------+
  *  |                        |            |            |                                             |                        |            |            |
