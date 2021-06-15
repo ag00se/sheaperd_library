@@ -12,12 +12,15 @@
 #include "sheaperd.h"
 
 typedef enum {
-	STACKGUARD_INVALID_MPU_ADDRESS,
-	STACKGUARD_NO_MPU_REGION_LEFT,
-	STACKGUARD_NO_SYNCHRONIZATION_BARRIER_CALLBACKS_PROVIDED,
-	STACKGUARD_MPU_ALREADY_ENABLED,
-	STACKGUARD_MPU_INVALID_REGION_SIZE,
-	STACKGUARD_NO_ERROR
+	STACKGUARD_INVALID_MPU_ADDRESS								= -0x01,
+	STACKGUARD_NO_MPU_REGION_LEFT								= -0x02,
+	STACKGUARD_NO_SYNCHRONIZATION_BARRIER_CALLBACKS_PROVIDED	= -0x03,
+	STACKGUARD_MPU_ALREADY_ENABLED								= -0x04,
+	STACKGUARD_MPU_ALREADY_DISABLED								= -0x05,
+	STACKGUARD_MPU_INVALID_REGION_SIZE							= -0x06,
+	STACKGUARD_INVALID_STACK_ALIGNMENT							= -0x07,
+
+	STACKGUARD_NO_ERROR											= 0x00
 } stackguard_error_t;
 
 /**
@@ -59,7 +62,7 @@ typedef enum {
 	STACKGUARD_MPU_REGIONSIZE_1GB 	= (uint8_t)0x1DU,
 	STACKGUARD_MPU_REGIONSIZE_2GB 	= (uint8_t)0x1EU,
 	STACKGUARD_MPU_REGIONSIZE_4GB 	= (uint8_t)0x1FU,
-	STACKGUARD_MPU_INVALID_SIZE = -1
+	STACKGUARD_MPU_INVALID_SIZE = -0x01
 }stackguard_mpu_regionSize_t;
 
 /**
@@ -78,8 +81,9 @@ sheaperd_MPUState_t stackguard_initMPU();
 stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, stackguard_mpu_regionSize_t stackSize);
 stackguard_error_t stackguard_removeTask();
 
-stackguard_error_t stackguard_enableMPU();
-void stackguard_taskSwitchIn(uint32_t taskId, uint32_t* sp);
+void stackguard_enableMPU();
+void stackguard_disableMPU();
+void stackguard_taskSwitchIn(uint32_t taskId);
 bool stackguard_isMPUEnabled();
 
 #endif /* STACKGUARD_H_ */

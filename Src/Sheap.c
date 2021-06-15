@@ -110,7 +110,7 @@ static const osMutexAttr_t memMutex_attr = {
 
 static memory_blockInfo_t* gStartBlock;
 static sheap_heapStat_t gHeap;
-static uint32_t gProgramCounters[SHEAPERD_SHEAP_PC_LOG_SIZE];
+static uint32_t gProgramCounters[SHEAP_PC_LOG_SIZE];
 static uint32_t gCurrentPCIndex;
 
 static void sheap_logAccess();
@@ -145,7 +145,7 @@ void sheap_init(uint32_t* heapStart, size_t size){
 		SHEAPERD_ASSERT("Sheap init failed due to invalid size.", size > 0, SHEAP_INIT_INVALID_SIZE);
 		return;
 	}
-	for(int i = 0; i < SHEAPERD_SHEAP_PC_LOG_SIZE; i++){
+	for(int i = 0; i < SHEAP_PC_LOG_SIZE; i++){
 		gProgramCounters[i] = 0;
 	}
 	gCurrentPCIndex = -1;
@@ -196,7 +196,7 @@ sheap_status_t sheap_getAllocationPC(void* ptr, uint32_t* pc) {
 #endif
 
 void sheap_logAccess(uint32_t pc){
-	gProgramCounters[(++gCurrentPCIndex) % SHEAPERD_SHEAP_PC_LOG_SIZE] = (uint32_t)pc;
+	gProgramCounters[(++gCurrentPCIndex) % SHEAP_PC_LOG_SIZE] = (uint32_t)pc;
 }
 
 size_t sheap_getHeapSize(){
@@ -367,8 +367,8 @@ memory_blockInfo_t* coalesce(memory_blockInfo_t** block){
 uint32_t sheap_getLatestAllocationPCs(uint32_t destination[], uint32_t n){
 	uint32_t index = gCurrentPCIndex;
 	uint32_t count = 0;
-	while(gProgramCounters[index % SHEAPERD_SHEAP_PC_LOG_SIZE] != 0 && count < n && count < SHEAPERD_SHEAP_PC_LOG_SIZE){
-		destination[count++] = gProgramCounters[(index--) % SHEAPERD_SHEAP_PC_LOG_SIZE];
+	while(gProgramCounters[index % SHEAP_PC_LOG_SIZE] != 0 && count < n && count < SHEAP_PC_LOG_SIZE){
+		destination[count++] = gProgramCounters[(index--) % SHEAP_PC_LOG_SIZE];
 	}
 	return count;
 }
