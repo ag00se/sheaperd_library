@@ -19,6 +19,8 @@ typedef enum {
 	STACKGUARD_MPU_ALREADY_DISABLED								= -0x05,
 	STACKGUARD_MPU_INVALID_REGION_SIZE							= -0x06,
 	STACKGUARD_INVALID_STACK_ALIGNMENT							= -0x07,
+	STACKGUARD_NO_MPU_AVAILABLE									= -0x08,
+	STACKGUARD_TASK_NOT_FOUND									= -0x09,
 
 	STACKGUARD_NO_ERROR											= 0x00
 } stackguard_error_t;
@@ -62,13 +64,14 @@ typedef enum {
 	STACKGUARD_MPU_REGIONSIZE_1GB 	= (uint8_t)0x1DU,
 	STACKGUARD_MPU_REGIONSIZE_2GB 	= (uint8_t)0x1EU,
 	STACKGUARD_MPU_REGIONSIZE_4GB 	= (uint8_t)0x1FU,
-	STACKGUARD_MPU_INVALID_SIZE = -0x01
+	STACKGUARD_MPU_INVALID_SIZE 	= -0x01
 }stackguard_mpu_regionSize_t;
 
 /**
- * Checks if the current CORTEX-M provides a MPU and initializes it.
+ * Initializes the stackguard functionality.
+ * As stackguard is using the MPU a call to this function will disable a currently active MPU.
  */
-sheaperd_MPUState_t stackguard_initMPU();
+stackguard_error_t stackguard_init();
 
 /**
  * Creates a MPU region for the provided stack pointer address and stack size.
@@ -77,12 +80,16 @@ sheaperd_MPUState_t stackguard_initMPU();
  * @param sp		Provides the base address of the MPU memory region
  * @param stackSize	Provides the size of the MPU memory region. Due to the register layout the size is restricted to the values
  * 					available from the 'stackguard_mpu_regionSize_t' enum
+ *
+ * @return error	Possible error return are:
+ * 					STACKGUARD_INVALID_MPU_ADDRESS 		(the address is not aligned to 32 bits)
+ * 					STACKGUARD_MPU_INVALID_REGION_SIZE 	(the provided @param stackSize is invalid)
+ * 					STACKGUARD_INVALID_STACK_ALIGNMENT 	(on Armv7 architecture: the stack pointer is not properly aligned for the provided @param stackSize)
+ * 					STACKGUARD_NO_MPU_REGION_LEFT		(no free MPU region is left to be configured)
  */
 stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, stackguard_mpu_regionSize_t stackSize);
-stackguard_error_t stackguard_removeTask();
+stackguard_error_t stackguard_removeTask(uint32_t taskId);
 
-void stackguard_enableMPU();
-void stackguard_disableMPU();
 void stackguard_taskSwitchIn(uint32_t taskId);
 bool stackguard_isMPUEnabled();
 

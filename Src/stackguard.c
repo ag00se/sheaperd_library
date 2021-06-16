@@ -100,7 +100,7 @@ static uint8_t gNumberOfRegions = 0;
 static uint8_t gNextUnusedRegion = 0;
 static stackguard_mpuRegion_t gTasksRegions[STACKGUARD_NUMBER_OF_MPU_REGIONS] = { 0 };
 
-static int8_t getRegionForTask(uint32_t taskId, stackguard_mpuRegion_t* region);
+static stackguard_mpuRegion_t* getRegionForTask(uint32_t taskId);
 static bool isAlignmentValid(uint32_t* sp, stackguard_mpu_regionSize_t size);
 static uint32_t getAlignmentMask(stackguard_mpu_regionSize_t size);
 
@@ -108,7 +108,7 @@ static uint8_t getMPURegions(){
 	return (uint8_t)(MPU->TYPE >> MPU_TYPE_DREGION_Pos);
 }
 
-sheaperd_MPUState_t stackguard_initMPU(){
+stackguard_error_t stackguard_init(){
 	stackguard_disableMPU();
 	gNumberOfRegions = 0;
 	for(int i = 0; i < STACKGUARD_NUMBER_OF_MPU_REGIONS; i++){
@@ -118,7 +118,7 @@ sheaperd_MPUState_t stackguard_initMPU(){
 	}
 	gNumberOfRegions = getMPURegions();
 	MPU->CTRL = 0 | 1 << MPU_CTRL_PRIVDEFENA;
-	return gNumberOfRegions == 0 ? SHEAPERD_MPU_NOT_AVAILABLE : SHEAPERD_MPU_INITIALIZED;
+	return gNumberOfRegions == 0 ? STACKGUARD_NO_MPU_AVAILABLE : STACKGUARD_NO_ERROR;
 }
 
 stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, stackguard_mpu_regionSize_t stackSize){
@@ -129,9 +129,11 @@ stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, stackguard_
 	if(stackSize == STACKGUARD_MPU_INVALID_SIZE){
 		return STACKGUARD_MPU_INVALID_REGION_SIZE;
 	}
+#if SHEAPERD_ARMV7
 	if(!isAlignmentValid(sp, stackSize)){
 		return STACKGUARD_INVALID_STACK_ALIGNMENT;
 	}
+#endif
 	if(gNextUnusedRegion >= gNumberOfRegions){
 		return STACKGUARD_NO_MPU_REGION_LEFT;
 	}
@@ -147,6 +149,17 @@ stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, stackguard_
 	while(gNextUnusedRegion < gNumberOfRegions && gTasksRegions[gNextUnusedRegion].taskId != -1){
 		gNextUnusedRegion++;
 	}
+	return STACKGUARD_NO_ERROR;
+}
+
+stackguard_error_t stackguard_removeTask(uint32_t taskId){
+	stackguard_mpuRegion_t* region = getRegionForTask(taskId);
+	if(region == NULL){
+		return STACKGUARD_TASK_NOT_FOUND;
+	}
+	region->taskId = -1;
+	region->sp = 0;
+	region->size = 0;
 	return STACKGUARD_NO_ERROR;
 }
 
@@ -185,21 +198,13 @@ void stackguard_taskSwitchIn(uint32_t taskId){
 	stackguard_enableMPU();
 }
 
-static int8_t getRegionForTask(uint32_t taskId, stackguard_mpuRegion_t* region){
-	region->taskId = -1;
-	region->size = STACKGUARD_MPU_INVALID_SIZE;
-	region->sp = 0;
-	int8_t regionIndex = -1;
+static stackguard_mpuRegion_t* getRegionForTask(uint32_t taskId){
 	for(int i = 0; i < gNumberOfRegions; i++){
 		if(gTasksRegions[i].taskId == taskId){
-			region->taskId = taskId;
-			region->sp = gTasksRegions[i].sp;
-			region->size = gTasksRegions[i].size;
-			regionIndex = i;
-			break;
+			return &gTasksRegions[i];
 		}
 	}
-	return regionIndex;
+	return NULL;
 }
 
 static bool isAlignmentValid(uint32_t* sp, stackguard_mpu_regionSize_t size){

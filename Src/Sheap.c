@@ -407,12 +407,12 @@ bool isPreviousBlockFree(memory_blockInfo_t* block){
 
 bool isNextBlockFree(memory_blockInfo_t* block){
 	memory_blockInfo_t* next = GET_NEXT_MEMORY_BLOCK(block);
-	return ((uint8_t*) next) <= gHeap.heapMax && !next->isAllocated;
+	return ((uint8_t*) next) < (gHeap.heapMax - GET_BLOCK_OVERHEAD_SIZE(SHEAPERD_SHEAP_MINIMUM_MALLOC_SIZE)) && !next->isAllocated;
 }
 
 void updateCRC(memory_blockInfo_t* block){
 	const uint8_t* crcData = (const uint8_t*)block;
-	block->crc = crc16_sw_calculate(crcData, sizeof(memory_blockInfo_t) - sizeof(uint16_t));
+	block->crc = util_crc16_sw_calculate(crcData, sizeof(memory_blockInfo_t) - sizeof(uint16_t));
 }
 
 #if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
@@ -451,22 +451,22 @@ bool isBlockValid(memory_blockInfo_t* block){
 bool isBlockCRCValid(memory_blockInfo_t* block){
 	memory_blockInfo_t* boundary = GET_BOUNDARY_TAG(block);
 	const uint8_t* crcData = (const uint8_t*)block;
-	uint16_t headerCrc = crc16_sw_calculate(crcData, sizeof(memory_blockInfo_t) - sizeof(uint16_t));
+	uint16_t headerCrc = util_crc16_sw_calculate(crcData, sizeof(memory_blockInfo_t) - sizeof(uint16_t));
 	crcData = (const uint8_t*)boundary;
-	uint16_t boundaryCrc = crc16_sw_calculate(crcData, sizeof(memory_blockInfo_t) - sizeof(uint16_t));
+	uint16_t boundaryCrc = util_crc16_sw_calculate(crcData, sizeof(memory_blockInfo_t) - sizeof(uint16_t));
 	return (block->crc == headerCrc) && (boundary->crc == boundaryCrc) && (headerCrc == boundaryCrc);
 }
 
 bool isBlockHeaderCRCValid(memory_blockInfo_t* block){
 	const uint8_t* crcData = (const uint8_t*)block;
-	uint16_t crc = crc16_sw_calculate(crcData, sizeof(memory_blockInfo_t) - sizeof(uint16_t));
+	uint16_t crc = util_crc16_sw_calculate(crcData, sizeof(memory_blockInfo_t) - sizeof(uint16_t));
 	return block->crc == crc;
 }
 
 bool isBlockBoundaryCRCValid(memory_blockInfo_t* block){
 	memory_blockInfo_t* boundary = GET_BOUNDARY_TAG(block);
 	const uint8_t* crcData = (const uint8_t*)boundary;
-	uint16_t crc = crc16_sw_calculate(crcData, sizeof(memory_blockInfo_t) - sizeof(uint16_t));
+	uint16_t crc = util_crc16_sw_calculate(crcData, sizeof(memory_blockInfo_t) - sizeof(uint16_t));
 	return block->crc == crc;
 }
 
@@ -494,47 +494,36 @@ void updateHeapStatistics(memory_operation_t op, uint32_t allocations, uint32_t 
 }
 
 void initMutex(){
-#ifdef SHEAPERD_CMSIS_2
-	if(gMemMutex_id != NULL){
-		osStatus_t status = osMutexDelete(gMemMutex_id);
-		if(status != osOK){
-			SHEAPERD_ASSERT("Mutex deletion failed.", gMemMutex_id != NULL, SHEAP_ERROR_MUTEX_CREATION_FAILED);
-		}
+	util_error_t error = util_initMutex(&gMemMutex_id, &memMutex_attr);
+
+	if(error == ERROR_MUTEX_DELETION_FAILED){
+		SHEAPERD_ASSERT("Mutex deletion failed.", false, SHEAPERD_ERROR_MUTEX_CREATION_FAILED);
+	} else if (error == ERROR_MUTEX_CREATION_FAILED){
+		SHEAPERD_ASSERT("Mutex creation failed.", false, SHEAPERD_ERROR_MUTEX_CREATION_FAILED);
 	}
-	gMemMutex_id = osMutexNew(&memMutex_attr);
-	SHEAPERD_ASSERT("Mutex creation failed.", gMemMutex_id != NULL, SHEAP_ERROR_MUTEX_CREATION_FAILED);
-	if(gMemMutex_id == NULL){
-	}
-#endif
 }
 
 bool acquireMutex(){
-#ifdef SHEAPERD_CMSIS_2
-	if(gMemMutex_id == NULL){
-    	SHEAPERD_ASSERT("MEMORY Information: No mutex available. Consider undefining 'SHEAPERD_CMSIS_2' if no mutex is needed.", false, SHEAP_ERROR_MUTEX_IS_NULL);
+	util_error_t error = util_acquireMutex(gMemMutex_id, SHEAPERD_SHEAP_MUTEX_WAIT_TICKS);
+	if(error == ERROR_MUTEX_IS_NULL){
+    	SHEAPERD_ASSERT("MEMORY Information: No mutex available. Consider undefining 'SHEAPERD_CMSIS_2' if no mutex is needed.", false, SHEAPERD_ERROR_MUTEX_IS_NULL);
+    	return false;
+	} else if (error == ERROR_MUTEX_ACQUIRE_FAILED){
+    	SHEAPERD_ASSERT("MEMORY Information: Could not acquire mutex.", false, SHEAPERD_ERROR_MUTEX_ACQUIRE_FAILED);
     	return false;
 	}
-	osStatus_t status = osMutexAcquire(gMemMutex_id, SHEAPERD_SHEAP_MUTEX_WAIT_TICKS);
-    if (status != osOK)  {
-    	SHEAPERD_ASSERT("MEMORY Information: Could not acquire mutex.", false, SHEAP_ERROR_MUTEX_ACQUIRE_FAILED);
-    	return false;
-    }
-#endif
-    return true;
+	return true;
 }
 
 bool releaseMutex(){
-#ifdef SHEAPERD_CMSIS_2
-	if (gMemMutex_id == NULL) {
-    	SHEAPERD_ASSERT("MEMORY Information: No mutex available. Consider removing the 'SHEAPERD_CMSIS_2' define if no mutex is needed.", false, SHEAP_ERROR_MUTEX_IS_NULL);
-    	return false;
+	util_error_t error = util_releaseMutex(gMemMutex_id);
+	if(error == ERROR_MUTEX_IS_NULL){
+		SHEAPERD_ASSERT("MEMORY Information: No mutex available. Consider removing the 'SHEAPERD_CMSIS_2' define if no mutex is needed.", false, SHEAPERD_ERROR_MUTEX_IS_NULL);
+		return false;
+	}else if(error == ERROR_MUTEX_RELEASE_FAILED){
+		SHEAPERD_ASSERT("MEMORY Information: Could not release mutex.", false, SHEAPERD_ERROR_MUTEX_RELEASE_FAILED);
+		return false;
 	}
-	osStatus_t status = osMutexRelease(gMemMutex_id);
-	if (status != osOK) {
-		SHEAPERD_ASSERT("MEMORY Information: Could not release mutex.", false, SHEAP_ERROR_MUTEX_RELEASE_FAILED);
-    	return false;
-	}
-#endif
 	return true;
 }
 
