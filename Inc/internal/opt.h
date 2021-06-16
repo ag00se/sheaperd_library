@@ -61,21 +61,6 @@
 	#ifndef STACKGUARD_NUMBER_OF_MPU_REGIONS
 		#define STACKGUARD_NUMBER_OF_MPU_REGIONS	16
 	#endif
-	/**
-	 * For an explanation of the MPU registers see some documentation like:
-	 * 	+ ARMv7-M Architecture Reference Manual: https://developer.arm.com/documentation/ddi0403/latest/
-	 * 	+ https://www.st.com/resource/en/application_note/dm00272912-managing-memory-protection-unit-in-stm32-mcus-stmicroelectronics.pdf
-	 * 	+ http://ww1.microchip.com/downloads/en/AppNotes/Atmel-42128-AT02346-Using-the-MPU-on-Atmel-Cortex-M3-M4-based-Microcontroller_Application-Note.pdf
-	 */
-	#ifndef STACKGUARD_MPU_MEMORY_ATTRIBUTES_TEX_SCB
-		#define STACKGUARD_MPU_MEMORY_ATTRIBUTES_TEX_SCB 0b000110
-	#endif
-	#ifndef STACKGUARD_MPU_MEMORY_ATTRIBUTES_AP_REGION_NO_ACCESS
-		#define STACKGUARD_MPU_MEMORY_ATTRIBUTES_AP_REGION_NO_ACCESS 0b000
-	#endif
-	#ifndef STACKGUARD_MPU_MEMORY_ATTRIBUTES_AP_REGION_FULL_ACCESS
-		#define STACKGUARD_MPU_MEMORY_ATTRIBUTES_AP_REGION_FULL_ACCESS 0b011
-	#endif
 #endif
 
 #define ASSERT_TYPE(TYPE, VALUE) ((TYPE){ 0 } = (VALUE))
@@ -85,11 +70,6 @@ do { 													\
 		SHEAPERD_PORT_ASSERT(msg, assertionType);		\
 	}													\
 } while(0)
-
-
-#ifdef SHEAPERD_INERCEPT_SBRK
-void* _sbrk(ptrdiff_t incr);
-#endif
 
 #ifndef SHEAPERD_SHEAP_PC_LOG_SIZE
 	#define SHEAP_PC_LOG_SIZE 			20
@@ -106,8 +86,8 @@ void* _sbrk(ptrdiff_t incr);
 #ifndef SHEAPERD_SHEAP_OVERWRITE_VALUE
 	#define SHEAPERD_SHEAP_OVERWRITE_VALUE				0xFF
 #endif
-#ifndef SHEAPERD_SHEAP_MUTEX_WAIT_TICKS
-	#define SHEAPERD_SHEAP_MUTEX_WAIT_TICKS				100
+#ifndef SHEAPERD_DEFAULT_MUTEX_WAIT_TICKS
+	#define SHEAPERD_DEFAULT_MUTEX_WAIT_TICKS			100
 #endif
 
 // TODO: implement logic in sheap.c

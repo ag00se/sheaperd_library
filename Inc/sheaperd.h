@@ -11,16 +11,6 @@
 #include "internal/def.h"
 #include "internal/opt.h"
 #include "internal/util.h"
-#include "sheap.h"
-
-typedef enum {
-	SHEAPERD_MPU_NOT_AVAILABLE,
-	SHEAPERD_MPU_INTIALIZATION_FAILED,
-	SHEAPERD_MPU_NOT_SUPPORTED_ATM,
-	SHEAPERD_MPU_INITIALIZED
-} sheaperd_MPUState_t;
-
-#include "stackguard.h"
 
 typedef enum {
 	SHEAPERD_GENERAL_ASSERT,
@@ -45,6 +35,7 @@ typedef enum {
 	SHEAP_ERROR_COALESCING_NEXT_BLOCK_ALTERED_INVALID_CRC,
 	SHEAP_ERROR_COALESCING_PREV_BLOCK_ALTERED_INVALID_CRC,
 	SHEAP_CONFIG_ERROR_INVALID_ALLOCATION_STRATEGY,
+	STACKGUARD_MPU_NOT_ENABLED
 } sheaperd_assertion_t;
 
 #if SHEAPERD_USE_SNPRINTF_ASSERT != 0

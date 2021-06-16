@@ -495,36 +495,39 @@ void updateHeapStatistics(memory_operation_t op, uint32_t allocations, uint32_t 
 
 void initMutex(){
 	util_error_t error = util_initMutex(&gMemMutex_id, &memMutex_attr);
-
 	if(error == ERROR_MUTEX_DELETION_FAILED){
-		SHEAPERD_ASSERT("Mutex deletion failed.", false, SHEAPERD_ERROR_MUTEX_CREATION_FAILED);
+		SHEAPERD_ASSERT("Mutex deletion failed.", false, SHEAPERD_ERROR_MUTEX_DELETION_FAILED);
 	} else if (error == ERROR_MUTEX_CREATION_FAILED){
 		SHEAPERD_ASSERT("Mutex creation failed.", false, SHEAPERD_ERROR_MUTEX_CREATION_FAILED);
 	}
 }
 
 bool acquireMutex(){
-	util_error_t error = util_acquireMutex(gMemMutex_id, SHEAPERD_SHEAP_MUTEX_WAIT_TICKS);
-	if(error == ERROR_MUTEX_IS_NULL){
-    	SHEAPERD_ASSERT("MEMORY Information: No mutex available. Consider undefining 'SHEAPERD_CMSIS_2' if no mutex is needed.", false, SHEAPERD_ERROR_MUTEX_IS_NULL);
-    	return false;
-	} else if (error == ERROR_MUTEX_ACQUIRE_FAILED){
-    	SHEAPERD_ASSERT("MEMORY Information: Could not acquire mutex.", false, SHEAPERD_ERROR_MUTEX_ACQUIRE_FAILED);
-    	return false;
+	util_error_t error = util_acquireMutex(gMemMutex_id, SHEAPERD_DEFAULT_MUTEX_WAIT_TICKS);
+	switch (error){
+		case ERROR_MUTEX_IS_NULL:
+			SHEAPERD_ASSERT("No mutex available. Consider undefining 'SHEAPERD_CMSIS_2' if no mutex is needed.", false, SHEAPERD_ERROR_MUTEX_IS_NULL);
+			return false;
+		case ERROR_MUTEX_ACQUIRE_FAILED:
+			SHEAPERD_ASSERT("Could not acquire mutex.", false, SHEAPERD_ERROR_MUTEX_ACQUIRE_FAILED);
+			return false;
+		default:
+			return true;
 	}
-	return true;
 }
 
 bool releaseMutex(){
 	util_error_t error = util_releaseMutex(gMemMutex_id);
-	if(error == ERROR_MUTEX_IS_NULL){
-		SHEAPERD_ASSERT("MEMORY Information: No mutex available. Consider removing the 'SHEAPERD_CMSIS_2' define if no mutex is needed.", false, SHEAPERD_ERROR_MUTEX_IS_NULL);
-		return false;
-	}else if(error == ERROR_MUTEX_RELEASE_FAILED){
-		SHEAPERD_ASSERT("MEMORY Information: Could not release mutex.", false, SHEAPERD_ERROR_MUTEX_RELEASE_FAILED);
-		return false;
+	switch(error){
+		case ERROR_MUTEX_IS_NULL:
+			SHEAPERD_ASSERT("No mutex available. Consider removing the 'SHEAPERD_CMSIS_2' define if no mutex is needed.", false, SHEAPERD_ERROR_MUTEX_IS_NULL);
+			return false;
+		case ERROR_MUTEX_RELEASE_FAILED:
+			SHEAPERD_ASSERT("Could not release mutex.", false, SHEAPERD_ERROR_MUTEX_RELEASE_FAILED);
+			return false;
+		default:
+			return true;
 	}
-	return true;
 }
 
 void sheap_getHeapStatistic(sheap_heapStat_t* heap){
