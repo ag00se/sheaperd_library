@@ -23,6 +23,7 @@ typedef enum {
 	STACKGUARD_NO_MPU_AVAILABLE									= -0x08,
 	STACKGUARD_TASK_NOT_FOUND									= -0x09,
 	STACKGUARD_MUTEX_ACQUIRE_FAILED								= -0x10,
+	STACKGUARD_INVALID_REGION_NUMBER							= -0x11,
 
 	STACKGUARD_NO_ERROR											= 0x00
 } stackguard_error_t;

@@ -80,6 +80,7 @@ typedef enum {
 	NO_MPU_AVAILABLE					= -0x01,
 	INVALID_REGION_ADDRESS				= -0x02,
 	INVALID_REGION_ADDRESS_ALIGNMENT	= -0x03,
+	INVALID_REGION_NUMBER				= -0x04,
 
 	NO_ERROR							= 0x00
 } mpu_error_t;
@@ -88,6 +89,7 @@ typedef struct {
 	uint32_t address;
 	bool enabled;
 	uint8_t number;
+	uint8_t srd;
 	mpu_regionSize_t size;
 	mpu_access_permission_t ap;
 	bool cachable;

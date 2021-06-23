@@ -74,11 +74,13 @@ stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, mpu_regionS
 			return STACKGUARD_INVALID_MPU_ADDRESS;
 		case INVALID_REGION_ADDRESS_ALIGNMENT:
 			return STACKGUARD_INVALID_STACK_ALIGNMENT;
+		case INVALID_REGION_NUMBER:
+			return STACKGUARD_INVALID_REGION_NUMBER;
 		default:
 			break;
 	}
 	gTasksRegions[gNextUnusedRegion] = region;
-	while(gNextUnusedRegion < gNumberOfRegions && gTasksRegions[gNextUnusedRegion].taskId != -1){
+	while (gNextUnusedRegion < gNumberOfRegions && gTasksRegions[gNextUnusedRegion].taskId != -1) {
 		gNextUnusedRegion++;
 	}
 	releaseMutex();
@@ -117,7 +119,7 @@ stackguard_error_t stackguard_guard(){
 
 static stackguard_error_t removeRegion(uint32_t taskId){
 	for(uint32_t i = 0; i < gNumberOfRegions; i++){
-		if(gTasksRegions[i].taskId == taskId){
+		if (gTasksRegions[i].taskId == taskId) {
 			gTasksRegions[i].taskId = -1;
 			gTasksRegions[i].mpuRegion = createDefaultRegion(0);
 			if(i < gNextUnusedRegion){
@@ -137,6 +139,7 @@ static void fillRegionDefaults(mpu_region_t* region){
 	region->shareable = true;
 	region->tex = MPU_DEFAULT_TEX;
 	region->xn = false;
+	region->srd = 0;
 }
 
 static mpu_region_t createDefaultRegion(uint32_t number){
@@ -150,7 +153,8 @@ static mpu_region_t createDefaultRegion(uint32_t number){
 			.bufferable = false,
 			.shareable = true,
 			.tex = MPU_DEFAULT_TEX,
-			.xn = false
+			.xn = false,
+			.srd = 0
 	};
 	return region;
 }

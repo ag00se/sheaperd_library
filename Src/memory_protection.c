@@ -25,6 +25,7 @@ do{                                                     \
 #define MPU_REGION_ADDRESS_32BIT_ALIGNMENT_MASK	0x1F
 
 #define MPU_RASR_SIZE_Pos						1
+#define MPU_RASR_SRD_Pos						8
 #define MPU_RASR_TEX_SCB_Pos					16
 #define MPU_RASR_AP_Pos							24
 #define MPU_RASR_XN_Pos							28
@@ -115,9 +116,13 @@ mpu_error_t memory_protection_configureRegion(mpu_region_t* region){
 		return INVALID_REGION_ADDRESS_ALIGNMENT;
 	}
 #endif
+	if(region->number >= memory_protection_getNumberOfMPURegions()){
+		return INVALID_REGION_NUMBER;
+	}
 	MPU->RBAR = region->address | (1 << MPU_RBAR_VALID_Pos) | region->number;
 	uint8_t tex_scb = region->tex << 3 | region->shareable << 2 | region->cachable << 1 | region->bufferable;
-	MPU->RASR = (region->ap << MPU_RASR_AP_Pos) | (region->xn << MPU_RASR_XN_Pos) | (tex_scb << MPU_RASR_TEX_SCB_Pos) | (region->size << MPU_RASR_SIZE_Pos) | region->enabled;
+	MPU->RASR = (region->ap << MPU_RASR_AP_Pos) | (region->xn << MPU_RASR_XN_Pos) | (tex_scb << MPU_RASR_TEX_SCB_Pos)
+			| region->srd << MPU_RASR_SRD_Pos | (region->size << MPU_RASR_SIZE_Pos) | region->enabled;
 	memory_protection_enableMPU();
 	return NO_ERROR;
 }

@@ -196,7 +196,7 @@ sheap_status_t sheap_getAllocationPC(void* ptr, uint32_t* pc) {
 #endif
 
 void sheap_logAccess(uint32_t pc){
-	gProgramCounters[(++gCurrentPCIndex) % SHEAP_PC_LOG_SIZE] = (uint32_t)pc;
+	gProgramCounters[(++gCurrentPCIndex) % SHEAP_PC_LOG_SIZE] = (uint32_t) pc;
 }
 
 size_t sheap_getHeapSize(){
@@ -208,7 +208,7 @@ size_t sheap_align(size_t n) {
 }
 
 memory_blockInfo_t* getNextFreeBlockOfSize(size_t size){
-#if SHEAPERD_SHEAP_MEMORY_ALLOCATION_STRATEGY == SHEAPERD_SHEAP_MEMORY_ALLOCATION
+#if SHEAPERD_SHEAP_MEMORY_ALLOCATION_STRATEGY == SHEAPERD_SHEAP_MEMORY_ALLOCATION_FIRST_FIT
 	memory_blockInfo_t* current = gStartBlock;
 	while((current->isAllocated == true || current->size < size) && (((uint8_t*)current) < gHeap.heapMax)){
 		current = GET_NEXT_MEMORY_BLOCK(current);
@@ -367,7 +367,7 @@ memory_blockInfo_t* coalesce(memory_blockInfo_t** block){
 uint32_t sheap_getLatestAllocationPCs(uint32_t destination[], uint32_t n){
 	uint32_t index = gCurrentPCIndex;
 	uint32_t count = 0;
-	while(gProgramCounters[index % SHEAP_PC_LOG_SIZE] != 0 && count < n && count < SHEAP_PC_LOG_SIZE){
+	while (gProgramCounters[index % SHEAP_PC_LOG_SIZE] != 0 && count < n && count < SHEAP_PC_LOG_SIZE) {
 		destination[count++] = gProgramCounters[(index--) % SHEAP_PC_LOG_SIZE];
 	}
 	return count;
