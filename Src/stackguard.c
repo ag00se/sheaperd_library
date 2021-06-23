@@ -58,8 +58,7 @@ static void handleMemFault(stackguard_stackFrame_t* stackFrame){
 	if ((*SCB_CFSR & SCB_CFSR_MEMFAULTSR_Msk) != 0) {
 		if ((*SCB_CFSR & SCB_CFSR_DACCVIOL_Msk) != 0) {
 			if(gMemFault_cb != NULL){
-				gMemFault_cb((uint32_t*)*SCB_MMFAR, *stackFrame);
-				return;
+				gMemFault_cb(*SCB_MMFAR, *stackFrame);
 			}
 		}
 	}

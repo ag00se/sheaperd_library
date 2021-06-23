@@ -39,7 +39,7 @@ typedef struct __attribute__((packed)) {
   uint32_t xpsr;
 } stackguard_stackFrame_t;
 
-typedef void (*stackguarg_memFault_cb)(uint32_t* faultAddress, stackguard_stackFrame_t stackFrame);
+typedef void (*stackguarg_memFault_cb)(uint32_t faultAddress, stackguard_stackFrame_t stackFrame);
 
 /**
  * Initializes the stackguard functionality.
