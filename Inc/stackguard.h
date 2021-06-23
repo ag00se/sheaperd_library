@@ -28,7 +28,8 @@ typedef enum {
 	STACKGUARD_NO_ERROR											= 0x00
 } stackguard_error_t;
 
-typedef struct __attribute__((packed)) {
+#pragma pack(1)
+typedef struct {
   uint32_t r0;
   uint32_t r1;
   uint32_t r2;
@@ -38,6 +39,7 @@ typedef struct __attribute__((packed)) {
   uint32_t return_address;
   uint32_t xpsr;
 } stackguard_stackFrame_t;
+#pragma pack()
 
 typedef void (*stackguarg_memFault_cb)(uint32_t faultAddress, stackguard_stackFrame_t stackFrame);
 

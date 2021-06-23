@@ -106,10 +106,13 @@ stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, mpu_regionS
 	mpu_error_t error = memory_protection_configureRegion(&region.mpuRegion);
 	switch (error){
 		case INVALID_REGION_ADDRESS:
+			releaseMutex();
 			return STACKGUARD_INVALID_MPU_ADDRESS;
 		case INVALID_REGION_ADDRESS_ALIGNMENT:
+			releaseMutex();
 			return STACKGUARD_INVALID_STACK_ALIGNMENT;
 		case INVALID_REGION_NUMBER:
+			releaseMutex();
 			return STACKGUARD_INVALID_REGION_NUMBER;
 		default:
 			break;
