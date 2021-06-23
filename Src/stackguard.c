@@ -54,6 +54,7 @@ static bool releaseMutex();
     }                                                    \
 } while (0)
 
+#if STACKGUARD_USE_MEMFAULT_HANDLER == 1
 static void handleMemFault(stackguard_stackFrame_t* stackFrame){
 	if ((*SCB_CFSR & SCB_CFSR_MEMFAULTSR_Msk) != 0) {
 		if ((*SCB_CFSR & SCB_CFSR_DACCVIOL_Msk) != 0) {
@@ -74,6 +75,7 @@ void MemManage_Handler(void){
 		"b handleMemFault			\n"
 	);
 }
+#endif
 
 stackguard_error_t stackguard_init(stackguarg_memFault_cb memFaultCallback){
 	gMemFault_cb = memFaultCallback;
