@@ -28,11 +28,24 @@ typedef enum {
 	STACKGUARD_NO_ERROR											= 0x00
 } stackguard_error_t;
 
+typedef struct __attribute__((packed)) {
+  uint32_t r0;
+  uint32_t r1;
+  uint32_t r2;
+  uint32_t r3;
+  uint32_t r12;
+  uint32_t lr;
+  uint32_t return_address;
+  uint32_t xpsr;
+} stackguard_stackFrame_t;
+
+typedef void (*stackguarg_memFault_cb)(uint32_t* faultAddress, stackguard_stackFrame_t stackFrame);
+
 /**
  * Initializes the stackguard functionality.
  * As stackguard is using the MPU a call to this function will disable a currently active MPU.
  */
-stackguard_error_t stackguard_init();
+stackguard_error_t stackguard_init(stackguarg_memFault_cb memFaultCallback);
 
 /**
  * Creates a MPU region for the provided stack pointer address and stack size.

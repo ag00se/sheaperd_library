@@ -24,6 +24,12 @@ static const osMutexAttr_t stackMutex_attr = {
 };
 #endif
 
+#define SCB 					(uint32_t*)0xE000ED00
+#define SCB_CFSR				(uint32_t*)(((uint8_t*)SCB) + 0x028)
+#define SCB_MMFAR				(uint32_t*)(((uint8_t*)SCB) + 0x034)
+#define SCB_CFSR_MEMFAULTSR_Msk	0xFF
+#define SCB_CFSR_DACCVIOL_Msk	1 << 1
+
 typedef struct{
 	int32_t taskId;
 	mpu_region_t mpuRegion;
@@ -32,6 +38,7 @@ typedef struct{
 static uint8_t gNumberOfRegions = 0;
 static uint8_t gNextUnusedRegion = 0;
 static stackguard_mpuRegion_t gTasksRegions[STACKGUARD_NUMBER_OF_MPU_REGIONS] = { 0 };
+static stackguarg_memFault_cb gMemFault_cb = NULL;
 
 static mpu_region_t createDefaultRegion(uint32_t number);
 static stackguard_error_t removeRegion(uint32_t taskId);
@@ -40,7 +47,37 @@ static void fillRegionDefaults(mpu_region_t* region);
 static bool acquireMutex();
 static bool releaseMutex();
 
-stackguard_error_t stackguard_init(){
+#define HALT_IF_DEBUGGING()                              \
+  do {                                                   \
+    if ((*(volatile uint32_t *)0xE000EDF0) & (1 << 0)) { \
+      __asm("bkpt 0");                                   \
+    }                                                    \
+} while (0)
+
+static void handleMemFault(stackguard_stackFrame_t* stackFrame){
+	if ((*SCB_CFSR & SCB_CFSR_MEMFAULTSR_Msk) != 0) {
+		if ((*SCB_CFSR & SCB_CFSR_DACCVIOL_Msk) != 0) {
+			if(gMemFault_cb != NULL){
+				gMemFault_cb((uint32_t*)*SCB_MMFAR, *stackFrame);
+				return;
+			}
+		}
+	}
+	HALT_IF_DEBUGGING();
+}
+
+void MemManage_Handler(void){
+	__asm volatile(
+		"tst lr, #4 				\n" // Check if msp or psp should be saved
+		"ite eq 					\n" // If condition
+		"mrseq r0, msp 				\n" // If equal use msp
+		"mrsne r0, psp 				\n" // If not equal use psp
+		"b handleMemFault			\n"
+	);
+}
+
+stackguard_error_t stackguard_init(stackguarg_memFault_cb memFaultCallback){
+	gMemFault_cb = memFaultCallback;
 	memory_protection_disableMPU();
 	gNumberOfRegions = 0;
 	for(uint32_t i = 0; i < STACKGUARD_NUMBER_OF_MPU_REGIONS; i++){
@@ -48,7 +85,6 @@ stackguard_error_t stackguard_init(){
 		gTasksRegions[i].mpuRegion = createDefaultRegion(i);
 	}
 	gNumberOfRegions = memory_protection_getNumberOfMPURegions();
-	memory_protection_disableMPU();
 	util_error_t error = util_initMutex(&gStackMutex_id, &stackMutex_attr);
 	SHEAPERD_ASSERT("Mutex creation failed.", error == ERROR_NO_ERROR, SHEAPERD_ERROR_MUTEX_CREATION_FAILED);
 	return gNumberOfRegions == 0 ? STACKGUARD_NO_MPU_AVAILABLE : STACKGUARD_NO_ERROR;
@@ -145,17 +181,10 @@ static void fillRegionDefaults(mpu_region_t* region){
 static mpu_region_t createDefaultRegion(uint32_t number){
 	mpu_region_t region = {
 			.address = 0,
-			.enabled = false,
 			.number = number,
-			.size = 0,
-			.ap = MPU_REGION_ALL_ACCESS_DENIED,
-			.cachable = true,
-			.bufferable = false,
-			.shareable = true,
-			.tex = MPU_DEFAULT_TEX,
-			.xn = false,
-			.srd = 0
+			.size = 0
 	};
+	fillRegionDefaults(&region);
 	return region;
 }
 
