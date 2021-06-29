@@ -24,6 +24,11 @@ static const osMutexAttr_t stackMutex_attr = {
 };
 #endif
 
+#ifdef SHEAPERD_CMSIS_1
+osMutexDef(stackguard_mutex);
+osMutexId gStackMutex_id;
+#endif
+
 #define SCB 					(uint32_t*)0xE000ED00
 #define SCB_CFSR				(uint32_t*)(((uint8_t*)SCB) + 0x028)
 #define SCB_MMFAR				(uint32_t*)(((uint8_t*)SCB) + 0x034)
@@ -86,12 +91,19 @@ stackguard_error_t stackguard_init(stackguarg_memFault_cb memFaultCallback){
 		gTasksRegions[i].mpuRegion = createDefaultRegion(i);
 	}
 	gNumberOfRegions = memory_protection_getNumberOfMPURegions();
+
+#ifdef SHEAPERD_CMSIS_1
+	util_error_t error = util_initMutex(osMutex(stackguard_mutex), &gStackMutex_id);
+#endif
+#ifdef SHEAPERD_CMSIS_2
 	util_error_t error = util_initMutex(&gStackMutex_id, &stackMutex_attr);
+#endif
+
 	SHEAPERD_ASSERT("Mutex creation failed.", error == ERROR_NO_ERROR, SHEAPERD_ERROR_MUTEX_CREATION_FAILED);
 	return gNumberOfRegions == 0 ? STACKGUARD_NO_MPU_AVAILABLE : STACKGUARD_NO_ERROR;
 }
 
-stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, mpu_regionSize_t stackSize){
+stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, mpu_regionSize_t stackSize, mpu_access_permission_t initialAP, bool xn){
 	if(gNextUnusedRegion >= gNumberOfRegions){
 		return STACKGUARD_NO_MPU_REGION_LEFT;
 	}
@@ -103,7 +115,9 @@ stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, mpu_regionS
 	region.mpuRegion.address = (uint32_t)sp;
 	region.mpuRegion.number = gNextUnusedRegion;
 	region.mpuRegion.size = stackSize;
+	region.mpuRegion.ap = initialAP;
 	fillRegionDefaults(&region.mpuRegion);
+	region.mpuRegion.xn = xn;
 
 	mpu_error_t error = memory_protection_configureRegion(&region.mpuRegion);
 	switch (error){
@@ -145,7 +159,7 @@ void stackguard_taskSwitchIn(uint32_t taskId){
 	for(int i = 0; i < gNumberOfRegions; i++){
 		stackguard_mpuRegion_t region = gTasksRegions[i];
 		if(region.taskId != -1){
-			region.mpuRegion.ap = region.taskId == taskId ? MPU_REGION_ALL_ACCESS_ALLOWED : MPU_REGION_ALL_ACCESS_DENIED;
+			region.mpuRegion.ap = region.taskId == taskId ? MPU_REGION_ALL_ACCESS_ALLOWED : MPU_REGION_PRIVELEGED_RO;
 			region.mpuRegion.number = i;
 			memory_protection_configureRegion(&region.mpuRegion);
 		}
@@ -172,7 +186,6 @@ static stackguard_error_t removeRegion(uint32_t taskId){
 }
 
 static void fillRegionDefaults(mpu_region_t* region){
-	region->ap = MPU_REGION_ALL_ACCESS_DENIED;
 	region->enabled = true;
 	region->cachable = true;
 	region->bufferable = false;
@@ -186,7 +199,8 @@ static mpu_region_t createDefaultRegion(uint32_t number){
 	mpu_region_t region = {
 			.address = 0,
 			.number = number,
-			.size = 0
+			.size = 0,
+			.ap = MPU_REGION_ALL_ACCESS_DENIED
 	};
 	fillRegionDefaults(&region);
 	return region;

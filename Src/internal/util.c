@@ -7,8 +7,9 @@
 
 #include "internal/util.h"
 
-util_error_t util_initMutex(osMutexId_t* mutexId, const osMutexAttr_t* mutexAttr){
+
 #ifdef SHEAPERD_CMSIS_2
+util_error_t util_initMutex(osMutexId_t* mutexId, const osMutexAttr_t* mutexAttr){
 	if(mutexId != NULL && *mutexId != 0){
 		osStatus_t status = osMutexDelete(*mutexId);
 		if(status != osOK){
@@ -19,12 +20,10 @@ util_error_t util_initMutex(osMutexId_t* mutexId, const osMutexAttr_t* mutexAttr
 	if(*mutexId == NULL){
 		return ERROR_MUTEX_CREATION_FAILED;
 	}
-#endif
 	return ERROR_NO_ERROR;
 }
 
 util_error_t util_acquireMutex(osMutexId_t mutexId, uint32_t timeout){
-#ifdef SHEAPERD_CMSIS_2
 	if(mutexId == NULL){
     	return ERROR_MUTEX_IS_NULL;
 	}
@@ -32,12 +31,10 @@ util_error_t util_acquireMutex(osMutexId_t mutexId, uint32_t timeout){
     if (status != osOK)  {
     	return ERROR_MUTEX_ACQUIRE_FAILED;
     }
-#endif
     return ERROR_NO_ERROR;
 }
 
 util_error_t util_releaseMutex(osMutexId_t mutexId){
-#ifdef SHEAPERD_CMSIS_2
 	if (mutexId == NULL) {
     	return ERROR_MUTEX_IS_NULL;
 	}
@@ -45,9 +42,58 @@ util_error_t util_releaseMutex(osMutexId_t mutexId){
 	if (status != osOK) {
     	return ERROR_MUTEX_RELEASE_FAILED;
 	}
-#endif
 	return ERROR_NO_ERROR;
 }
+#endif
+
+#ifdef SHEAPERD_CMSIS_1
+util_error_t util_initMutex(const osMutexDef_t* mutexDef, osMutexId* mutexId){
+	if(mutexId != NULL && *mutexId != 0){
+		osStatus status = osMutexDelete(*mutexId);
+		if(status != osOK){
+			return ERROR_MUTEX_DELETION_FAILED;
+		}
+	}
+	*mutexId = osMutexCreate(mutexDef);
+	if (mutexId == NULL)  {
+		return ERROR_MUTEX_CREATION_FAILED;
+	}
+	return ERROR_NO_ERROR;
+}
+#endif
+
+util_error_t util_acquireMutex(osMutexId mutexId, uint32_t timeout){
+	if(mutexId == NULL){
+    	return ERROR_MUTEX_IS_NULL;
+	}
+#ifdef SHEAPERD_CMSIS_1
+	osStatus status = osMutexWait(mutexId, timeout);
+#endif
+#ifdef SHEAPERD_CMSIS_2
+	osStatus_t status = osMutexAcquire(mutexId, timeout);
+#endif
+    if (status != osOK)  {
+    	return ERROR_MUTEX_ACQUIRE_FAILED;
+    }
+    return ERROR_NO_ERROR;
+}
+
+util_error_t util_releaseMutex(osMutexId mutexId){
+	if (mutexId == NULL) {
+    	return ERROR_MUTEX_IS_NULL;
+	}
+#ifdef SHEAPERD_CMSIS_1
+	osStatus status = osMutexRelease(mutexId);
+#endif
+#ifdef SHEAPERD_CMSIS_2
+	osStatus_t status = osMutexRelease(mutexId);
+#endif
+	if (status != osOK) {
+    	return ERROR_MUTEX_RELEASE_FAILED;
+	}
+	return ERROR_NO_ERROR;
+}
+
 
 uint16_t util_crc16_sw_calculate(uint8_t const data[], int n){
 	uint16_t crc = 0xFFFF;

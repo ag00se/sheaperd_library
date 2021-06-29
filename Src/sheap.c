@@ -108,6 +108,11 @@ static const osMutexAttr_t memMutex_attr = {
 };
 #endif
 
+#ifdef SHEAPERD_CMSIS_1
+osMutexDef(sheap_mutex);
+osMutexId gMemMutex_id;
+#endif
+
 static memory_blockInfo_t* gStartBlock;
 static sheap_heapStat_t gHeap;
 static uint32_t gProgramCounters[SHEAP_PC_LOG_SIZE];
@@ -494,7 +499,12 @@ void updateHeapStatistics(memory_operation_t op, uint32_t allocations, uint32_t 
 }
 
 void initMutex(){
+#ifdef SHEAPERD_CMSIS_1
+	util_error_t error = util_initMutex(osMutex(sheap_mutex), &gMemMutex_id);
+#endif
+#ifdef SHEAPERD_CMSIS_2
 	util_error_t error = util_initMutex(&gMemMutex_id, &memMutex_attr);
+#endif
 	if(error == ERROR_MUTEX_DELETION_FAILED){
 		SHEAPERD_ASSERT("Mutex deletion failed.", false, SHEAPERD_ERROR_MUTEX_DELETION_FAILED);
 	} else if (error == ERROR_MUTEX_CREATION_FAILED){

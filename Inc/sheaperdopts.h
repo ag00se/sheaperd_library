@@ -8,6 +8,7 @@
 #ifndef SHEAPERDOPTS_H_
 #define SHEAPERDOPTS_H_
 
+#define SHEAPERD_CMSIS_1					1
 #define SHEAPERD_SHEAP 						1
 #define SHEAPERD_STACK_GUARD 				1
 #define MEMORY_PROTECTION					1

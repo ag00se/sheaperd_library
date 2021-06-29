@@ -63,7 +63,7 @@ stackguard_error_t stackguard_init(stackguarg_memFault_cb memFaultCallback);
  * 					STACKGUARD_NO_MPU_REGION_LEFT		(no free MPU region is left to be configured)
  * 					STACKGUARD_MUTEX_ACQUIRE_FAILED		(could not acquire the mutex)
  */
-stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, mpu_regionSize_t stackSize);
+stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, mpu_regionSize_t stackSize, mpu_access_permission_t initialAP, bool xn);
 stackguard_error_t stackguard_removeTask(uint32_t taskId);
 
 stackguard_error_t stackguard_guard();

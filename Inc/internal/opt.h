@@ -11,9 +11,15 @@
 //included first so any user settings take precedence
 #include "sheaperdopts.h"
 
-#ifndef SHEAPERD_CMSIS_2
-#define SHEAPERD_CMSIS_2
-	#include "cmsis_os2.h"
+#ifndef SHEAPERD_CMSIS_1_EXTERNAL && SHEAPERD_CMSIS_2_EXTERNAL
+	#ifdef SHEAPERD_CMSIS_1
+		#include "cmsis_os.h"
+	#endif
+
+	#ifndef SHEAPERD_CMSIS_1 && SHEAPERD_CMSIS_2
+		#define SHEAPERD_CMSIS_2
+		#include "cmsis_os2.h"
+	#endif
 #endif
 
 #ifndef SHEAPERD_SHEAP
