@@ -52,12 +52,17 @@ static void fillRegionDefaults(mpu_region_t* region);
 static bool acquireMutex();
 static bool releaseMutex();
 
-#define HALT_IF_DEBUGGING()                              \
-  do {                                                   \
-    if ((*(volatile uint32_t *)0xE000EDF0) & (1 << 0)) { \
-      __asm("bkpt 0");                                   \
-    }                                                    \
-} while (0)
+#ifdef STACKGUARD_HALT_ON_MEM_FAULT
+#if STACKGUARD_HALT_ON_MEM_FAULT == 1
+	#define HALT_IF_DEBUGGING()                              \
+	  do {                                                   \
+		if ((*(volatile uint32_t *)0xE000EDF0) & (1 << 0)) { \
+		  __asm("bkpt 0");                                   \
+		}                                                    \
+	} while (0)
+#endif
+#endif
+#define HALT_IF_DEBUGGING()
 
 #if STACKGUARD_USE_MEMFAULT_HANDLER == 1
 static void handleMemFault(stackguard_stackFrame_t* stackFrame){
