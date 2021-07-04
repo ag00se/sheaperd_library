@@ -60,9 +60,10 @@ static bool releaseMutex();
 		  __asm("bkpt 0");                                   \
 		}                                                    \
 	} while (0)
-#endif
-#endif
+#elif
 #define HALT_IF_DEBUGGING()
+#endif
+#endif
 
 #if STACKGUARD_USE_MEMFAULT_HANDLER == 1
 static void handleMemFault(stackguard_stackFrame_t* stackFrame){
