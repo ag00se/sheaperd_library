@@ -165,7 +165,7 @@ void stackguard_taskSwitchIn(uint32_t taskId){
 	for(int i = 0; i < gNumberOfRegions; i++){
 		stackguard_mpuRegion_t region = gTasksRegions[i];
 		if(region.taskId != -1){
-			region.mpuRegion.ap = region.taskId == taskId ? MPU_REGION_ALL_ACCESS_ALLOWED : MPU_REGION_PRIVELEGED_RO;
+			region.mpuRegion.ap = region.taskId == taskId ? MPU_REGION_ALL_ACCESS_ALLOWED : STACKGUARD_DEFAULT_TASK_SWITCH_OUT_PERMISSION;
 			region.mpuRegion.number = i;
 			memory_protection_configureRegion(&region.mpuRegion);
 		}

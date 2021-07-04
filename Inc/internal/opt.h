@@ -11,15 +11,12 @@
 //included first so any user settings take precedence
 #include "sheaperdopts.h"
 
-#ifndef SHEAPERD_CMSIS_1_EXTERNAL && SHEAPERD_CMSIS_2_EXTERNAL
-	#ifdef SHEAPERD_CMSIS_1
-		#include "cmsis_os.h"
-	#endif
-
-	#ifndef SHEAPERD_CMSIS_1 && SHEAPERD_CMSIS_2
-		#define SHEAPERD_CMSIS_2
-		#include "cmsis_os2.h"
-	#endif
+#ifdef SHEAPERD_CMSIS_1
+	#include "cmsis_os.h"
+#endif
+#ifndef SHEAPERD_CMSIS_1 && SHEAPERD_CMSIS_2
+	#define SHEAPERD_CMSIS_2
+	#include "cmsis_os2.h"
 #endif
 
 #ifndef SHEAPERD_SHEAP
@@ -69,6 +66,9 @@
 	#endif
 	#ifndef STACKGUARD_NUMBER_OF_MPU_REGIONS
 		#define STACKGUARD_NUMBER_OF_MPU_REGIONS	16
+	#endif
+	#ifndef STACKGUARD_DEFAULT_TASK_SWITCH_OUT_PERMISSION
+		#define STACKGUARD_DEFAULT_TASK_SWITCH_OUT_PERMISSION MPU_REGION_PRIVELEGED_RO
 	#endif
 #endif
 
