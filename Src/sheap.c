@@ -48,9 +48,9 @@
 #include <sheap.h>
 
 #define PAYLOAD_BLOCK_TO_MEMORY_BLOCK(payload) 	((memory_blockInfo_t*)payload) - 1
-#define GET_NEXT_MEMORY_BLOCK(block) 			(memory_blockInfo_t*)	(((uint8_t*)block) + 2 * sizeof(memory_blockInfo_t) + block->size)
-#define GET_PREV_MEMORY_BLOCK(block)			(memory_blockInfo_t*)	(((uint8_t*)block) - 2 * sizeof(memory_blockInfo_t) - GET_SIZE_OF_PREV_BLOCK(block))
-#define GET_BOUNDARY_TAG(block)					(memory_blockInfo_t*)  	(((uint8_t*)block) + sizeof(memory_blockInfo_t) + block->size)
+#define GET_NEXT_MEMORY_BLOCK(block) 			(memory_blockInfo_t*)(((uint8_t*)block) + 2 * sizeof(memory_blockInfo_t) + block->size)
+#define GET_PREV_MEMORY_BLOCK(block)			(memory_blockInfo_t*)(((uint8_t*)block) - 2 * sizeof(memory_blockInfo_t) - GET_SIZE_OF_PREV_BLOCK(block))
+#define GET_BOUNDARY_TAG(block)					(memory_blockInfo_t*)(((uint8_t*)block) + sizeof(memory_blockInfo_t) + block->size)
 #define GET_BLOCK_OVERHEAD_SIZE(size)			(size_t) (size +  (2 * sizeof(memory_blockInfo_t)))
 #define GET_SIZE_OF_PREV_BLOCK(block)			(block - 1)->size
 
@@ -98,7 +98,7 @@ typedef enum{
 	MEMORY_OP_FREE
 } memory_operation_t;
 
-#ifdef SHEAPERD_CMSIS_2
+#if SHEAPERD_CMSIS_2 == 1
 static osMutexId_t gMemMutex_id;
 static const osMutexAttr_t memMutex_attr = {
 	  "sheap_mutex",
@@ -108,7 +108,7 @@ static const osMutexAttr_t memMutex_attr = {
 };
 #endif
 
-#ifdef SHEAPERD_CMSIS_1
+#if SHEAPERD_CMSIS_1 == 1
 osMutexDef(sheap_mutex);
 osMutexId gMemMutex_id;
 #endif
@@ -499,10 +499,13 @@ void updateHeapStatistics(memory_operation_t op, uint32_t allocations, uint32_t 
 }
 
 void initMutex(){
-#ifdef SHEAPERD_CMSIS_1
+#if SHEAPERD_NO_OS == 1
+	util_error_t error = ERROR_NO_ERROR;
+#endif
+#if SHEAPERD_CMSIS_1 == 1
 	util_error_t error = util_initMutex(osMutex(sheap_mutex), &gMemMutex_id);
 #endif
-#ifdef SHEAPERD_CMSIS_2
+#if SHEAPERD_CMSIS_2 == 1
 	util_error_t error = util_initMutex(&gMemMutex_id, &memMutex_attr);
 #endif
 	if(error == ERROR_MUTEX_DELETION_FAILED){
@@ -513,6 +516,9 @@ void initMutex(){
 }
 
 bool acquireMutex(){
+	#if SHEAPERD_NO_OS == 1
+		return true;
+	#else
 	util_error_t error = util_acquireMutex(gMemMutex_id, SHEAPERD_DEFAULT_MUTEX_WAIT_TICKS);
 	switch (error){
 		case ERROR_MUTEX_IS_NULL:
@@ -524,9 +530,13 @@ bool acquireMutex(){
 		default:
 			return true;
 	}
+	#endif
 }
 
 bool releaseMutex(){
+	#if SHEAPERD_NO_OS == 1
+		return true;
+	#else
 	util_error_t error = util_releaseMutex(gMemMutex_id);
 	switch(error){
 		case ERROR_MUTEX_IS_NULL:
@@ -538,6 +548,7 @@ bool releaseMutex(){
 		default:
 			return true;
 	}
+#endif
 }
 
 void sheap_getHeapStatistic(sheap_heapStat_t* heap){

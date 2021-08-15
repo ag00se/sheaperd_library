@@ -14,7 +14,7 @@
 #endif
 #include "stackguard.h"
 
-#ifdef SHEAPERD_CMSIS_2
+#if SHEAPERD_CMSIS_2 == 1
 static osMutexId_t gStackMutex_id;
 static const osMutexAttr_t stackMutex_attr = {
 	  "stackguard_mutex",
@@ -24,7 +24,7 @@ static const osMutexAttr_t stackMutex_attr = {
 };
 #endif
 
-#ifdef SHEAPERD_CMSIS_1
+#if SHEAPERD_CMSIS_1 == 1
 osMutexDef(stackguard_mutex);
 osMutexId gStackMutex_id;
 #endif
@@ -98,10 +98,11 @@ stackguard_error_t stackguard_init(stackguarg_memFault_cb memFaultCallback){
 	}
 	gNumberOfRegions = memory_protection_getNumberOfMPURegions();
 
-#ifdef SHEAPERD_CMSIS_1
+#if SHEAPERD_NO_OS == 1
+	util_error_t error = ERROR_NO_ERROR;
+#elif SHEAPERD_CMSIS_1 == 1
 	util_error_t error = util_initMutex(osMutex(stackguard_mutex), &gStackMutex_id);
-#endif
-#ifdef SHEAPERD_CMSIS_2
+#elif SHEAPERD_CMSIS_2 == 1
 	util_error_t error = util_initMutex(&gStackMutex_id, &stackMutex_attr);
 #endif
 
@@ -213,15 +214,23 @@ static mpu_region_t createDefaultRegion(uint32_t number){
 }
 
 static bool acquireMutex(){
+	#if SHEAPERD_NO_OS == 1
+		return true;
+	#else
 	util_error_t error = util_acquireMutex(gStackMutex_id, SHEAPERD_DEFAULT_MUTEX_WAIT_TICKS);
 	SHEAPERD_ASSERT("Mutex acquire failed.", error == ERROR_NO_ERROR, SHEAPERD_ERROR_MUTEX_ACQUIRE_FAILED);
 	return error == ERROR_NO_ERROR;
+	#endif
 }
 
 static bool releaseMutex(){
+	#if SHEAPERD_NO_OS == 1
+		return true;
+	#else
 	util_error_t error = util_releaseMutex(gStackMutex_id);
 	SHEAPERD_ASSERT("Mutex release failed.", error == ERROR_NO_ERROR, SHEAPERD_ERROR_MUTEX_RELEASE_FAILED);
 	return error == ERROR_NO_ERROR;
+	#endif
 }
 
 #endif
