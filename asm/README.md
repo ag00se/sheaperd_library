@@ -23,30 +23,30 @@ sheap_malloc_lr:
     bl         sheap_malloc     ;branch and link to the C function
     pop        {r1, pc}         ;restore the stored values
 
-	.endfunc
+    .endfunc
 
 sheap_calloc_lr:
-	.func
+    .func
 
-	push       {r1, r2, lr}     ;same as malloc, just an addition parameter to store
+    push       {r1, r2, lr}     ;same as malloc, just an addition parameter to store
     mov        r2, lr
     bl         sheap_calloc
     pop        {r1, r2, pc}
 
-	.endfunc
+    .endfunc
 
 sheap_free_lr:
-	.func
+    .func
 
-	push       {r1, lr}         ;same as malloc
+    push       {r1, lr}         ;same as malloc
     mov        r1, lr
     bl sheap_free
     pop        {r1, pc}
 
-	.endfunc
+    .endfunc
 
 
-	.end
+    .end
 
 ```
 
