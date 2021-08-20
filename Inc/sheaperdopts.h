@@ -8,11 +8,8 @@
 #ifndef SHEAPERDOPTS_H_
 #define SHEAPERDOPTS_H_
 
-#define SHEAPERD_CMSIS_1					0
-#define SHEAPERD_CMSIS_2					0
-#define SHEAPERD_NO_OS						1
-
 #define SHEAPERD_SHEAP 						1
+#define SHEAPERD_SHEAP_USE_EXTENDED_HEADER  1
 
 #define SHEAPERD_STACK_GUARD 				1
 #define MEMORY_PROTECTION					1

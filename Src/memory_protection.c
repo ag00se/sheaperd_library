@@ -105,7 +105,7 @@ static uint32_t gAlignmentTable[28] = {
 static bool isAddressValid(uint32_t address);
 static bool isAlignmentValid(mpu_region_t* region);
 
-mpu_error_t memory_protection_configureRegion(mpu_region_t* region){
+mpu_error_t memory_protection_configureRegion(mpu_region_t* region, bool activateMPU){
 	ASSERT_RETURN_ERROR_ON_FAILURE(memory_protection_getNumberOfMPURegions() == 0, NO_MPU_AVAILABLE);
 	memory_protection_disableMPU();
 	if(!isAddressValid(region->address)){
@@ -123,7 +123,9 @@ mpu_error_t memory_protection_configureRegion(mpu_region_t* region){
 	uint8_t tex_scb = region->tex << 3 | region->shareable << 2 | region->cachable << 1 | region->bufferable;
 	MPU->RASR = (region->ap << MPU_RASR_AP_Pos) | (region->xn << MPU_RASR_XN_Pos) | (tex_scb << MPU_RASR_TEX_SCB_Pos)
 			| region->srd << MPU_RASR_SRD_Pos | (region->size << MPU_RASR_SIZE_Pos) | region->enabled;
-	memory_protection_enableMPU();
+	if(activateMPU) {
+        memory_protection_enableMPU();
+	}
 	return NO_ERROR;
 }
 
@@ -138,14 +140,15 @@ bool memory_protection_isMPUEnabled(){
 mpu_error_t memory_protection_enableMPU(){
 	ASSERT_RETURN_ERROR_ON_FAILURE(memory_protection_getNumberOfMPURegions() == 0, NO_MPU_AVAILABLE);
 	MPU->CTRL = (1 << MPU_CTRL_PRIVDEFENA_Pos) | 0x1;
-	__asm volatile ("dsb 0xF":::"memory");
-	__asm volatile ("isb 0xF":::"memory");
+	__asm volatile(
+	        "\tdsb\n"
+	        "\tisb");
 	return NO_ERROR;
 }
 
 mpu_error_t memory_protection_disableMPU(){
 	ASSERT_RETURN_ERROR_ON_FAILURE(memory_protection_getNumberOfMPURegions() == 0, NO_MPU_AVAILABLE);
-	__asm volatile ("dmb 0xF":::"memory");
+	__asm volatile("\tdmb\n");
 	MPU->CTRL  = 0;
 	return NO_ERROR;
 }

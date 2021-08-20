@@ -16,38 +16,6 @@ typedef enum {
 	SHEAP_ERROR
 } sheap_status_t;
 
-/**
-* Allocates the size \size on the heap and returns the pointer in pVoid \pVoid.
-*
-* @param size 	Specifies the amount of data to allocate
-* @param pVoid  A void* to assign the result to.
-*
-*/
-#define SHEAP_MALLOC(size, pVoid)                                                               \
-do {                                                                                            \
-	if(ASSERT_TYPE(size_t, size)){                                                              \
-		register uint32_t r1 asm("r1");															\
-		uint32_t r1Backup = r1;																	\
-		__asm volatile("mov r1, pc\n");                /* Store the pc in r1                */  \
-		uint32_t pc;																			\
-		asm("mov %0, r1" : "=r" (pc));															\
-		size_t s = size;                                                                        \
-		pVoid = sheap_malloc(size, pc);                                                        	\
-		r1 = r1Backup;																			\
-	}                                                                                           \
-} while(0)
-
-#define SHEAP_FREE(pVoid)                                                                       \
-do {                                                                                            \
-	register uint32_t r1 asm("r1");																\
-	uint32_t r1Backup = r1;																		\
-	__asm volatile("mov r1, pc\n");                /* Store the pc in r1                */  	\
-	uint32_t pc;																				\
-	asm("mov %0, r1" : "=r" (pc));																\
-	sheap_free(pVoid, pc);																		\
-	r1 = r1Backup;																				\
-} while(0)
-
 typedef struct{
 	uint8_t* 	heapMin;
 	uint8_t* 	heapMax;
@@ -59,6 +27,14 @@ typedef struct{
 } sheap_heapStat_t;
 
 /**
+ * The following function are implemented in assembler. See the ../asm folder
+ */
+void* sheap_malloc_lr(size_t size);
+void* sheap_calloc_lr(size_t num, size_t size);
+void* sheap_free_lr(void* p);
+
+
+/**
  * Allocates memory of the requested size and provides a pointer to the memory
  * to the caller. For best error detection support one should use the provided
  * SHEAP_MALLOC(size, pVoid) macro.
@@ -68,17 +44,17 @@ typedef struct{
  * If possible use the SHEAP_MALLOC(size, pVoid) macro.
  *
  * @param size the size of memory to be allocated
- * @param pc the current program counter of the caller
+ * @param pc the current program counter / or another value to identify the origin of the calling context
  */
 void* sheap_malloc(size_t size, uint32_t pc);
-
+void* sheap_calloc(size_t num, size_t size, uint32_t pc);
 /**
  * Deallocates memory associated with the provided pointer.
  * For best error detection support one should use the provided
  * SHEAP_FREE(pVoid) macro.
  * If this function is called directly the parameter pc can be set to 0. In
- * general it is intended to record the program counter of the caller to
- * obtain additional information.
+ * general it is intended to record the program counter / or another value to identify the origin
+ * of the calling context to obtain additional information.
  * If possible use the SHEAP_FREE(pVoid) macro.
  *
  * @param ptr the pointer associated with the memory to be freed

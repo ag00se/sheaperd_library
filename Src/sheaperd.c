@@ -20,11 +20,14 @@
 	#define ACTLR ((ACTLR_t*)0xE000E008)
 #endif
 
+#if SHEAPERD_USE_SNPRINTF_ASSERT == 1
 /**
 * This buffer is used for the creation of assert messages using 'snprintf'
 * This buffer should not be accessed outside of the sheaperd library
 */
 char gAssertionBuffer[SHEAPERD_ASSERT_BUFFER_SIZE] = { 0 };
+#endif
+
 static sheaperd_assertion_cb gAssertionCallback = NULL;
 
 void sheaperd_init(sheaperd_assertion_cb assertionCallback){

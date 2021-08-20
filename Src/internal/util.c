@@ -7,7 +7,6 @@
 
 #include "internal/util.h"
 
-
 #if SHEAPERD_CMSIS_2 == 1
 util_error_t util_initMutex(osMutexId_t* mutexId, const osMutexAttr_t* mutexAttr){
 	if(mutexId != NULL && *mutexId != 0){
@@ -60,19 +59,12 @@ util_error_t util_initMutex(const osMutexDef_t* mutexDef, osMutexId* mutexId){
 	}
 	return ERROR_NO_ERROR;
 }
-#endif
 
-#if SHEAPERD_CMSIS_1 == 1 || SHEAPERD_CMSIS_2 == 1
 util_error_t util_acquireMutex(osMutexId mutexId, uint32_t timeout){
 	if(mutexId == NULL){
     	return ERROR_MUTEX_IS_NULL;
 	}
-#if SHEAPERD_CMSIS_1 == 1
 	osStatus status = osMutexWait(mutexId, timeout);
-#endif
-#if SHEAPERD_CMSIS_2 == 1
-	osStatus_t status = osMutexAcquire(mutexId, timeout);
-#endif
     if (status != osOK)  {
     	return ERROR_MUTEX_ACQUIRE_FAILED;
     }
@@ -83,12 +75,7 @@ util_error_t util_releaseMutex(osMutexId mutexId){
 	if (mutexId == NULL) {
     	return ERROR_MUTEX_IS_NULL;
 	}
-#ifdef SHEAPERD_CMSIS_1
 	osStatus status = osMutexRelease(mutexId);
-#endif
-#ifdef SHEAPERD_CMSIS_2
-	osStatus_t status = osMutexRelease(mutexId);
-#endif
 	if (status != osOK) {
     	return ERROR_MUTEX_RELEASE_FAILED;
 	}

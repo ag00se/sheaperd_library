@@ -28,6 +28,7 @@ typedef enum {
 	STACKGUARD_NO_ERROR											= 0x00
 } stackguard_error_t;
 
+// see:ARMv7-M Architecture Reference Manual https://developer.arm.com/documentation/ddi0403/ed
 #pragma pack(1)
 typedef struct {
   uint32_t r0;
@@ -64,6 +65,7 @@ stackguard_error_t stackguard_init(stackguarg_memFault_cb memFaultCallback);
  * 					STACKGUARD_MUTEX_ACQUIRE_FAILED		(could not acquire the mutex)
  */
 stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, mpu_regionSize_t stackSize, mpu_access_permission_t initialAP, bool xn);
+stackguard_error_t stackguard_addTaskByteSize(uint32_t taskId, uint32_t* sp, uint32_t stackSize, mpu_access_permission_t initialAP, bool xn);
 stackguard_error_t stackguard_removeTask(uint32_t taskId);
 
 stackguard_error_t stackguard_guard();

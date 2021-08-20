@@ -28,9 +28,12 @@ util_error_t util_initMutex(osMutexId_t* mutexId, const osMutexAttr_t* mutexAttr
 util_error_t util_initMutex(const osMutexDef_t* mutexDef, osMutexId* mutexId);
 #endif
 
-#if SHEAPERD_CMSIS_1 == 1 || SHEAPERD_CMSIS_2 == 1
+#if SHEAPERD_CMSIS_1 == 1
 util_error_t util_acquireMutex(osMutexId mutexId, uint32_t timeout);
 util_error_t util_releaseMutex(osMutexId mutexId);
+#elif SHEAPERD_CMSIS_2 == 1
+util_error_t util_acquireMutex(osMutexId_t mutexId, uint32_t timeout);
+util_error_t util_releaseMutex(osMutexId_t mutexId);
 #endif
 
 uint16_t util_crc16_sw_calculate(uint8_t const data[], int n);

@@ -8,8 +8,8 @@
 #include "internal/opt.h"
 
 // don't include stackguard if not enabled via options
-#if SHEAPERD_STACK_GUARD
-#ifndef MEMORY_PROTECTION
+#if SHEAPERD_STACK_GUARD == 1
+#if MEMORY_PROTECTION == 0
 	#define MEMORY_PROTECTION 1
 #endif
 #include "stackguard.h"
@@ -45,28 +45,32 @@ static uint8_t gNextUnusedRegion = 0;
 static stackguard_mpuRegion_t gTasksRegions[STACKGUARD_NUMBER_OF_MPU_REGIONS] = { 0 };
 static stackguarg_memFault_cb gMemFault_cb = NULL;
 
+static bool isPowerOfTwo(uint32_t value);
 static mpu_region_t createDefaultRegion(uint32_t number);
 static stackguard_error_t removeRegion(uint32_t taskId);
 static void fillRegionDefaults(mpu_region_t* region);
 
-static bool acquireMutex();
-static bool releaseMutex();
+static bool stackguard_acquireMutex();
+static bool stackguard_releaseMutex();
+static void handleMemFault(stackguard_stackFrame_t* stackFrame);
+void MemManage_Handler(void);
 
-#ifdef STACKGUARD_HALT_ON_MEM_FAULT
 #if STACKGUARD_HALT_ON_MEM_FAULT == 1
 	#define HALT_IF_DEBUGGING()                              \
 	  do {                                                   \
 		if ((*(volatile uint32_t *)0xE000EDF0) & (1 << 0)) { \
-		  __asm("bkpt 0");                                   \
+		    __asm__("\tBKPT #0");                            \
 		}                                                    \
 	} while (0)
 #elif
-#define HALT_IF_DEBUGGING()
-#endif
+    #define HALT_IF_DEBUGGING()
 #endif
 
 #if STACKGUARD_USE_MEMFAULT_HANDLER == 1
 static void handleMemFault(stackguard_stackFrame_t* stackFrame){
+    if(stackFrame == NULL) {
+        return;
+    }
 	if ((*SCB_CFSR & SCB_CFSR_MEMFAULTSR_Msk) != 0) {
 		if ((*SCB_CFSR & SCB_CFSR_DACCVIOL_Msk) != 0) {
 			if(gMemFault_cb != NULL){
@@ -77,13 +81,13 @@ static void handleMemFault(stackguard_stackFrame_t* stackFrame){
 	HALT_IF_DEBUGGING();
 }
 
-void MemManage_Handler(void){
+void MemManage_Handler(void) {
 	__asm volatile(
-		"tst lr, #4 				\n" // Check if msp or psp should be saved
-		"ite eq 					\n" // If condition
-		"mrseq r0, msp 				\n" // If equal use msp
-		"mrsne r0, psp 				\n" // If not equal use psp
-		"b handleMemFault			\n"
+		"\ttst lr, #4 				\n" // Check if msp or psp should be saved
+		"\tite eq 					\n" // If condition
+		"\tmrseq r0, msp 			\n" // If equal use msp
+		"\tmrsne r0, psp 			\n" // If not equal use psp
+		"\tb handleMemFault\n"
 	);
 }
 #endif
@@ -110,11 +114,23 @@ stackguard_error_t stackguard_init(stackguarg_memFault_cb memFaultCallback){
 	return gNumberOfRegions == 0 ? STACKGUARD_NO_MPU_AVAILABLE : STACKGUARD_NO_ERROR;
 }
 
+stackguard_error_t stackguard_addTaskByteSize(uint32_t taskId, uint32_t* sp, uint32_t stackSize, mpu_access_permission_t initialAP, bool xn) {
+    if(!isPowerOfTwo(stackSize)) {
+        return STACKGUARD_MPU_INVALID_REGION_SIZE;
+    }
+    uint32_t exp = 0;
+    size_t size = stackSize;
+    while (size >>= 1) {
+        exp++;
+    }
+    return stackguard_addTask(taskId, sp, exp - 1, initialAP, xn);
+}
+
 stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, mpu_regionSize_t stackSize, mpu_access_permission_t initialAP, bool xn){
 	if(gNextUnusedRegion >= gNumberOfRegions){
 		return STACKGUARD_NO_MPU_REGION_LEFT;
 	}
-	if(!acquireMutex()){
+	if(!stackguard_acquireMutex()){
 		return STACKGUARD_MUTEX_ACQUIRE_FAILED;
 	}
 	stackguard_mpuRegion_t region;
@@ -126,16 +142,16 @@ stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, mpu_regionS
 	fillRegionDefaults(&region.mpuRegion);
 	region.mpuRegion.xn = xn;
 
-	mpu_error_t error = memory_protection_configureRegion(&region.mpuRegion);
+	mpu_error_t error = memory_protection_configureRegion(&region.mpuRegion, false);
 	switch (error){
 		case INVALID_REGION_ADDRESS:
-			releaseMutex();
+			stackguard_releaseMutex();
 			return STACKGUARD_INVALID_MPU_ADDRESS;
 		case INVALID_REGION_ADDRESS_ALIGNMENT:
-			releaseMutex();
+			stackguard_releaseMutex();
 			return STACKGUARD_INVALID_STACK_ALIGNMENT;
 		case INVALID_REGION_NUMBER:
-			releaseMutex();
+			stackguard_releaseMutex();
 			return STACKGUARD_INVALID_REGION_NUMBER;
 		default:
 			break;
@@ -144,16 +160,16 @@ stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, mpu_regionS
 	while (gNextUnusedRegion < gNumberOfRegions && gTasksRegions[gNextUnusedRegion].taskId != -1) {
 		gNextUnusedRegion++;
 	}
-	releaseMutex();
+	stackguard_releaseMutex();
 	return STACKGUARD_NO_ERROR;
 }
 
 stackguard_error_t stackguard_removeTask(uint32_t taskId){
-	if(!acquireMutex()){
+	if(!stackguard_acquireMutex()){
 		return STACKGUARD_MUTEX_ACQUIRE_FAILED;
 	}
 	stackguard_error_t error = removeRegion(taskId);
-	releaseMutex();
+	stackguard_releaseMutex();
 	return error;
 }
 
@@ -168,7 +184,7 @@ void stackguard_taskSwitchIn(uint32_t taskId){
 		if(region.taskId != -1){
 			region.mpuRegion.ap = region.taskId == taskId ? MPU_REGION_ALL_ACCESS_ALLOWED : STACKGUARD_DEFAULT_TASK_SWITCH_OUT_PERMISSION;
 			region.mpuRegion.number = i;
-			memory_protection_configureRegion(&region.mpuRegion);
+			memory_protection_configureRegion(&region.mpuRegion, false);
 		}
 	}
 	memory_protection_enableMPU();
@@ -176,6 +192,10 @@ void stackguard_taskSwitchIn(uint32_t taskId){
 
 stackguard_error_t stackguard_guard(){
 	return memory_protection_enableMPU() == NO_MPU_AVAILABLE ? STACKGUARD_NO_MPU_AVAILABLE : STACKGUARD_NO_ERROR;
+}
+
+static bool isPowerOfTwo(uint32_t value) {
+    return (value != 0) && ((value & (value - 1)) == 0);
 }
 
 static stackguard_error_t removeRegion(uint32_t taskId){
@@ -206,30 +226,30 @@ static mpu_region_t createDefaultRegion(uint32_t number){
 	mpu_region_t region = {
 			.address = 0,
 			.number = number,
-			.size = 0,
+			.size = REGIONSIZE_32B,
 			.ap = MPU_REGION_ALL_ACCESS_DENIED
 	};
 	fillRegionDefaults(&region);
 	return region;
 }
 
-static bool acquireMutex(){
+static bool stackguard_acquireMutex(){
 	#if SHEAPERD_NO_OS == 1
 		return true;
 	#else
-	util_error_t error = util_acquireMutex(gStackMutex_id, SHEAPERD_DEFAULT_MUTEX_WAIT_TICKS);
-	SHEAPERD_ASSERT("Mutex acquire failed.", error == ERROR_NO_ERROR, SHEAPERD_ERROR_MUTEX_ACQUIRE_FAILED);
-	return error == ERROR_NO_ERROR;
+        util_error_t error = util_acquireMutex(gStackMutex_id, SHEAPERD_DEFAULT_MUTEX_WAIT_TICKS);
+        SHEAPERD_ASSERT("Mutex acquire failed.", error == ERROR_NO_ERROR, SHEAPERD_ERROR_MUTEX_ACQUIRE_FAILED);
+        return error == ERROR_NO_ERROR;
 	#endif
 }
 
-static bool releaseMutex(){
+static bool stackguard_releaseMutex(){
 	#if SHEAPERD_NO_OS == 1
 		return true;
-	#else
-	util_error_t error = util_releaseMutex(gStackMutex_id);
-	SHEAPERD_ASSERT("Mutex release failed.", error == ERROR_NO_ERROR, SHEAPERD_ERROR_MUTEX_RELEASE_FAILED);
-	return error == ERROR_NO_ERROR;
+    #else
+        util_error_t error = util_releaseMutex(gStackMutex_id);
+        SHEAPERD_ASSERT("Mutex release failed.", error == ERROR_NO_ERROR, SHEAPERD_ERROR_MUTEX_RELEASE_FAILED);
+        return error == ERROR_NO_ERROR;
 	#endif
 }
 

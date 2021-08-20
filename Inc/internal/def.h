@@ -8,7 +8,7 @@
 #ifndef INTERNAL_DEF_H_
 #define INTERNAL_DEF_H_
 
-#include <inttypes.h>
+#include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
 

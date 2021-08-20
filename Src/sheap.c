@@ -41,11 +41,10 @@
  */
 
 #include "internal/opt.h"
+#include <sheap.h>
 
 // don't build sheap if not enabled via options
 #if SHEAPERD_SHEAP
-
-#include <sheap.h>
 
 #define PAYLOAD_BLOCK_TO_MEMORY_BLOCK(payload) 	((memory_blockInfo_t*)payload) - 1
 #define GET_NEXT_MEMORY_BLOCK(block) 			(memory_blockInfo_t*)(((uint8_t*)block) + 2 * sizeof(memory_blockInfo_t) + block->size)
@@ -56,20 +55,37 @@
 
 #define GET_R1(r1_val)							asm ("mov %0, r1" : "=r" (r1_val))
 
+#define REPORT_ERROR_AND_RETURN(assertMsg, assertionType)  	\
+do{                                                        	\
+	SHEAPERD_ASSERT(assertMsg, false, assertionType);	    \
+	return;                                            		\
+}while(0)
+#define REPORT_ERROR_AND_RETURN_NULL(assertMsg, assertionType)  	\
+do{                                                             	\
+	SHEAPERD_ASSERT(assertMsg, false, assertionType);	       		\
+	return NULL;                                            		\
+}while(0)
 #define REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, assertionType)  	\
 do{                                                             	\
 	SHEAPERD_ASSERT(assertMsg, false, assertionType);	       		\
-	releaseMutex();                                            		\
+	sheap_releaseMutex();                                            		\
 }while(0)
-#define REPORT_ERROR_RELEASE_MUTEX_AND_RETURN(assertMsg, assertionType)			\
-do{                                                               				\
-	REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, assertionType);     	         	\
-	return;                                                        				\
+#define REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_AND_RETURN(assertMsg, assertionType)	\
+do{                                                               						\
+	freeBusy = false;																	\
+	REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, assertionType);     	         			\
+	return;                                                        						\
 }while(0)
 #define REPORT_ERROR_RELEASE_MUTEX_AND_RETURN_NULL(assertMsg, assertionType)    	\
 do{                                                                         		\
 	REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, assertionType);						\
 	return NULL;                                                          			\
+}while(0)
+
+#define CLEAR_MALLOC_FLAG_AND_RETURN_NULL()	\
+do{											\
+	allocBusy = false;						\
+	return NULL;							\
 }while(0)
 
 #if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
@@ -82,7 +98,7 @@ do{                                                                         		\
 		uint16_t			crc;
 	} memory_blockInfo_t;
 	#pragma pack()
-#elif
+#elif SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 0
 #pragma pack(1)
 	typedef struct memory_blockInfo_t{
 		uint32_t 			isAllocated : 1;
@@ -116,7 +132,7 @@ osMutexId gMemMutex_id;
 static memory_blockInfo_t* gStartBlock;
 static sheap_heapStat_t gHeap;
 static uint32_t gProgramCounters[SHEAP_PC_LOG_SIZE];
-static uint32_t gCurrentPCIndex;
+static int16_t gCurrentPCIndex;
 
 static void sheap_logAccess();
 static memory_blockInfo_t* getNextFreeBlockOfSize(size_t size);
@@ -140,10 +156,15 @@ static bool isBlockHeaderCRCValid(memory_blockInfo_t* block);
 static bool isBlockBoundaryCRCValid(memory_blockInfo_t* block);
 static bool	checkForIllegalWrite(memory_blockInfo_t* block);
 static void updateHeapStatistics(memory_operation_t op, uint32_t allocations, uint32_t sizeAligned, uint32_t size, uint32_t blockSize);
+static uint8_t* allocateBlock(size_t size, uint32_t pc, bool initializePayload);
+static void* sheap_alloc_impl(size_t size, uint32_t pc, bool initializeData);
 
-static void initMutex();
-static bool acquireMutex();
-static bool releaseMutex();
+static void sheap_initMutex();
+static bool sheap_acquireMutex();
+static bool sheap_releaseMutex();
+
+static bool allocBusy;
+static bool freeBusy;
 
 void sheap_init(uint32_t* heapStart, size_t size){
 	if(size == 0){
@@ -171,12 +192,12 @@ void sheap_init(uint32_t* heapStart, size_t size){
 	updateBlockHeader(gStartBlock, gHeap.size - 2 * sizeof(memory_blockInfo_t), 0, false);
 #endif
 	updateBlockBoundary(gStartBlock);
-	initMutex();
+	sheap_initMutex();
 }
 
 #if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
 sheap_status_t sheap_getAllocationPC(void* ptr, uint32_t* pc) {
-	if(!acquireMutex()){
+	if(!sheap_acquireMutex()){
 		return SHEAP_ERROR;
 	}
 	if(ptr == NULL){
@@ -195,7 +216,7 @@ sheap_status_t sheap_getAllocationPC(void* ptr, uint32_t* pc) {
 		return SHEAP_INVALID_POINTER;
 	}
 	*pc = current->pc;
-	releaseMutex();
+	sheap_releaseMutex();
 	return SHEAP_OK;
 }
 #endif
@@ -234,89 +255,132 @@ memory_blockInfo_t* getNextFreeBlockOfSize(size_t size){
 #endif
 }
 
-void* sheap_malloc(size_t size, uint32_t pc){
-	if(gHeap.heapMin == NULL){
-		SHEAPERD_ASSERT("\"SHEAP_MALLOC\" must not be used before the initialization (\"sheap_init\").", gHeap.heapMin != NULL, SHEAP_NOT_INITIALIZED);
-		return NULL;
-	}
-	if(!acquireMutex()){
-		return NULL;
-	}
-	if(pc != 0){
-		sheap_logAccess(pc);
-	}
-	if(size == 0){
-		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN_NULL("Cannot allocate size of 0. Is this call intentional?", SHEAP_SIZE_ZERO_ALLOC);
-	}
-	size_t sizeAligned = sheap_align(size);
-	memory_blockInfo_t* allocate = getNextFreeBlockOfSize(sizeAligned);
+void* sheap_malloc(size_t size, uint32_t pc) {
+    return sheap_alloc_impl(size, pc, false);
+}
 
-	if(allocate == NULL){
-		releaseMutex();
-		return NULL;
-	}
+void* sheap_calloc(size_t num, size_t size, uint32_t pc) {
+    return sheap_alloc_impl(num * size, pc, true);
+}
 
-	uint32_t preAllocSize = allocate->size;
-	if(preAllocSize < GET_BLOCK_OVERHEAD_SIZE(sizeAligned) + (SHEAPERD_SHEAP_MINIMUM_MALLOC_SIZE + (2 * sizeof(memory_blockInfo_t)))){
-		// No additional block of minimum size can be created after this block, therefore take all available memory to obtain heap structure
-		sizeAligned = preAllocSize;
-	}
-
-	allocate->isAllocated = true;
-	allocate->size = sizeAligned;
-#if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
-	allocate->pc = pc;
+void* sheap_alloc_impl(size_t size, uint32_t pc, bool initializeData) {
+#if SHEAPERD_NO_OS == 1
+    if(allocBusy) {
+        SHEAPERD_ASSERT("Overlapping call to allocation functions 'sheap_malloc/sheap_alloc' detected. Returning without allocation.", allocBusy == false, SHEAP_MALLOC_CALL_OVERLAP);
+        return NULL;
+    } else {
+        allocBusy = true;
+    }
 #endif
-	allocate->alignmentOffset = sizeAligned - size;
-	updateHeapStatistics(MEMORY_OP_ALLOC, 1, sizeAligned, size, GET_BLOCK_OVERHEAD_SIZE(sizeAligned));
+    if(gHeap.heapMin == NULL){
+        SHEAPERD_ASSERT("\"SHEAP_MALLOC\" must not be used before the initialization (\"sheap_init\").", gHeap.heapMin != NULL, SHEAP_NOT_INITIALIZED);
+        CLEAR_MALLOC_FLAG_AND_RETURN_NULL();
+    }
+    if(!sheap_acquireMutex()){
+        return NULL;
+    }
+    if(pc != 0){
+        sheap_logAccess(pc);
+    }
+    if(size == 0){
+        SHEAPERD_ASSERT("Cannot allocate size of 0. Is this call intentional?", size > 0, SHEAP_SIZE_ZERO_ALLOC);
+        CLEAR_MALLOC_FLAG_AND_RETURN_NULL();
+    }
+    uint8_t* allocated = allocateBlock(size, pc, initializeData);
+#if SHEAPERD_NO_OS == 1
+    allocBusy = false;
+#endif
+    sheap_releaseMutex();
+    return allocated;
+}
 
-	updateCRC(allocate);
-	updateBlockBoundary(allocate);
+uint8_t* allocateBlock(size_t size, uint32_t pc, bool initializePayload) {
+    size_t sizeAligned = sheap_align(size);
+    memory_blockInfo_t* allocate = getNextFreeBlockOfSize(sizeAligned);
+    uint32_t preAllocSize = allocate->size;
+    if (preAllocSize < GET_BLOCK_OVERHEAD_SIZE(sizeAligned)
+            + (SHEAPERD_SHEAP_MINIMUM_MALLOC_SIZE + (2 * sizeof(memory_blockInfo_t)))) {
+        // No additional block of minimum size can be created after this block, therefore take all available memory to obtain heap structure
+        sizeAligned = preAllocSize;
+    }
 
-	uint8_t* payload = (uint8_t*)(allocate + 1);
-
-	if(allocate->size < preAllocSize){
-		memory_blockInfo_t* remainingBlock = GET_NEXT_MEMORY_BLOCK(allocate);
+    allocate->isAllocated = true;
+    allocate->size = sizeAligned;
 #if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
-		updateBlockHeader(remainingBlock, preAllocSize - GET_BLOCK_OVERHEAD_SIZE(sizeAligned), 0, false, SHEAPERD_SHEAP_AUTO_CREATED_BLOCK_PC);
+    allocate->pc = pc;
+#endif
+    allocate->alignmentOffset = sizeAligned - size;
+    updateHeapStatistics(MEMORY_OP_ALLOC, 1, sizeAligned, size,
+                         GET_BLOCK_OVERHEAD_SIZE(sizeAligned));
+
+    updateCRC(allocate);
+    updateBlockBoundary(allocate);
+
+    uint8_t* payload = (uint8_t*) (allocate + 1);
+
+    if (allocate->size < preAllocSize) {
+        memory_blockInfo_t *remainingBlock = GET_NEXT_MEMORY_BLOCK(allocate);
+#if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
+        updateBlockHeader(remainingBlock, preAllocSize - GET_BLOCK_OVERHEAD_SIZE(sizeAligned),
+                          0, false, SHEAPERD_SHEAP_AUTO_CREATED_BLOCK_PC);
 #elif SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 0
-		updateBlockHeader(remainingBlock, preAllocSize - GET_BLOCK_OVERHEAD_SIZE(sizeAligned), 0, false);
+        updateBlockHeader(remainingBlock, preAllocSize - GET_BLOCK_OVERHEAD_SIZE(sizeAligned), 0, false);
 #endif
-		updateBlockBoundary(remainingBlock);
-	}
-	releaseMutex();
+        updateBlockBoundary(remainingBlock);
+    }
+
+    if(initializePayload) {
+        uint8_t* p = payload;
+        while(p < (uint8_t*)GET_BOUNDARY_TAG(allocate)) {
+            *p++ = SHEAPERD_SHEAP_CALLOC_VALUE;
+        }
+    }
     return payload;
 }
 
 void sheap_free(void* ptr, uint32_t pc){
-	if(!acquireMutex()){
+#if SHEAPERD_NO_OS == 1
+	if(freeBusy) {
+		SHEAPERD_ASSERT("Overlapping call to 'sheap_free' detected. Returning without freeing memory.", freeBusy == false, SHEAP_FREE_CALL_OVERLAP);
+		return;
+	} else {
+		freeBusy = true;
+	}
+#endif
+	if(!sheap_acquireMutex()){
 		return;
 	}
 	if(pc != 0){
 		sheap_logAccess(pc);
 	}
 	if(ptr == NULL){
-		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN("MEMORY ERROR: Free operation not valid for null pointer", SHEAP_ERROR_NULL_FREE);
+		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_AND_RETURN(
+				"MEMORY ERROR: Free operation not valid for null pointer", SHEAP_ERROR_NULL_FREE);
 	}
 	if(ptr < (void*)gHeap.heapMin || ptr > (void*)gHeap.heapMax){
-		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN("Cannot free pointer outside of heap.", SHEAP_ERROR_FREE_PTR_NOT_IN_HEAP);
+		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_AND_RETURN(
+				"Cannot free pointer outside of heap.", SHEAP_ERROR_FREE_PTR_NOT_IN_HEAP);
 	}
 	memory_blockInfo_t* current = PAYLOAD_BLOCK_TO_MEMORY_BLOCK(ptr);
 	if(current == NULL){
-		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN("Cannot free the provided pointer", SHEAP_ERROR_FREE_INVALID_HEADER);
+		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_AND_RETURN(
+				"Cannot free the provided pointer", SHEAP_ERROR_FREE_INVALID_HEADER);
 	}
 	if(!isBlockHeaderCRCValid(current)){
-		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN("MEMORY ERROR: Free operation can not be performed as block header is not valid",
+		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_AND_RETURN(
+				"MEMORY ERROR: Free operation can not be performed as block header is not valid",
 				SHEAP_ERROR_FREE_INVALID_HEADER);
 	}else if(!isBlockBoundaryCRCValid(current)){
-		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN("MEMORY ERROR: Free operation can not be performed as block boundary is not valid. It may have been altered. Calling the error callback",
+		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_AND_RETURN(
+				"MEMORY ERROR: Free operation can not be performed as block boundary is not valid. It may have been altered. Calling the error callback",
 				SHEAP_ERROR_FREE_INVALID_BOUNDARY);
 	}
 
 #ifdef SHEAPERD_SHEAP_FREE_CHECK_UNALIGNED_SIZE
 	bool illegalWrite = checkForIllegalWrite(current);
 	if(illegalWrite){
-		REPORT_ERROR_RELEASE_MUTEX_AND_RETURN("MEMORY ERROR: Out of bound write detected. Free operation aborted", SHEAP_ERROR_OUT_OF_BOUND_WRITE);
+		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_AND_RETURN(
+				"MEMORY ERROR: Out of bound write detected. Free operation aborted", SHEAP_ERROR_OUT_OF_BOUND_WRITE);
 	}
 #endif
 
@@ -330,15 +394,16 @@ void sheap_free(void* ptr, uint32_t pc){
 		current = coalesce(&current);
 #if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
 		current->pc = pc;
-#elif SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 0
-		current->pc = SHEAPERD_SHEAP_AUTO_CREATED_BLOCK_PC;
 #endif
 		updateCRC(current);
 		updateBlockBoundary(current);
 	}else{
 		SHEAPERD_ASSERT("MEMORY ERROR: Double free detected.", false, SHEAP_ERROR_DOUBLE_FREE);
 	}
-	releaseMutex();
+	sheap_releaseMutex();
+#if SHEAPERD_NO_OS == 1
+	freeBusy = false;
+#endif
 }
 
 memory_blockInfo_t* coalesce(memory_blockInfo_t** block){
@@ -498,7 +563,7 @@ void updateHeapStatistics(memory_operation_t op, uint32_t allocations, uint32_t 
 	}
 }
 
-void initMutex(){
+void sheap_initMutex(){
 #if SHEAPERD_NO_OS == 1
 	util_error_t error = ERROR_NO_ERROR;
 #endif
@@ -515,7 +580,7 @@ void initMutex(){
 	}
 }
 
-bool acquireMutex(){
+bool sheap_acquireMutex(){
 	#if SHEAPERD_NO_OS == 1
 		return true;
 	#else
@@ -533,7 +598,7 @@ bool acquireMutex(){
 	#endif
 }
 
-bool releaseMutex(){
+bool sheap_releaseMutex(){
 	#if SHEAPERD_NO_OS == 1
 		return true;
 	#else

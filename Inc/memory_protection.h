@@ -16,14 +16,14 @@
 do{												\
 	mpu_region_t* r = &region;					\
 	r->enabled = true;							\
-	memory_protection_configureRegion(r);		\
+	memory_protection_configureRegion(r, true); \
 } while(0)
 
 #define MPU_DEACTIVATE_REGION(region)			\
 do{												\
 	mpu_region_t* r = &region;					\
 	r->enabled = false;							\
-	memory_protection_configureRegion(r);		\
+	memory_protection_configureRegion(r, true); \
 } while(0)
 
 /**
@@ -101,8 +101,9 @@ typedef struct {
 
 mpu_error_t memory_protection_enableMPU();
 mpu_error_t memory_protection_disableMPU();
+
 bool memory_protection_isMPUEnabled();
-mpu_error_t memory_protection_configureRegion(mpu_region_t* region);
+mpu_error_t memory_protection_configureRegion(mpu_region_t* region, bool activateMPU);
 uint8_t memory_protection_getNumberOfMPURegions();
 
 #endif /* INC_MEMORY_PROTECTION_H_ */
