@@ -11,14 +11,14 @@ Sample ```gcc``` implementation with comments:
 ```assembly
 .thumb
     .global sheap_malloc_lr
-	.global sheap_calloc_lr
-	.global sheap_free_lr
+    .global sheap_calloc_lr
+    .global sheap_free_lr
 
 
 sheap_malloc_lr:
-	.func
+    .func
 
-	push       {r1, lr}         ;store r1 as we change it ;store lr to return
+    push       {r1, lr}         ;store r1 as we change it ;store lr to return
     mov        r1, lr           ;mov lr to r1 - r1 is the second parameter for the sheap_malloc call which is used to store the origin of the caller
     bl         sheap_malloc     ;branch and link to the C function
     pop        {r1, pc}         ;restore the stored values
