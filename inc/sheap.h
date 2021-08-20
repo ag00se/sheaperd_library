@@ -8,7 +8,7 @@
 #ifndef INC_SHEAP_H_
 #define INC_SHEAP_H_
 
-#include "sheaperd.h"
+#include <sheaperd.h>
 
 typedef enum {
 	SHEAP_OK,
@@ -38,35 +38,34 @@ void* sheap_free_lr(void* p);
  * Allocates memory of the requested size and provides a pointer to the memory
  * to the caller. For best error detection support one should use the provided
  * SHEAP_MALLOC(size, pVoid) macro.
- * If this function is called directly the parameter pc can be set to 0. In
- * general it is intended to record the program counter of the caller to
+ * If this function is called directly the parameter id can be set to 0. In
+ * general it is intended to record some form of identification of the caller to
  * obtain additional information.
- * If possible use the SHEAP_MALLOC(size, pVoid) macro.
  *
  * @param size the size of memory to be allocated
- * @param pc the current program counter / or another value to identify the origin of the calling context
+ * @param id the value to identify the origin of the calling context
  */
-void* sheap_malloc(size_t size, uint32_t pc);
-void* sheap_calloc(size_t num, size_t size, uint32_t pc);
+void* sheap_malloc(size_t size, uint32_t id);
+void* sheap_calloc(size_t num, size_t size, uint32_t id);
 /**
  * Deallocates memory associated with the provided pointer.
  * For best error detection support one should use the provided
  * SHEAP_FREE(pVoid) macro.
- * If this function is called directly the parameter pc can be set to 0. In
- * general it is intended to record the program counter / or another value to identify the origin
- * of the calling context to obtain additional information.
- * If possible use the SHEAP_FREE(pVoid) macro.
+ * If this function is called directly the parameter id can be set to 0. In
+ * general it is intended to record some form of identification of the caller to
+ * obtain additional information.
  *
  * @param ptr the pointer associated with the memory to be freed
+ * @param id the value to identify the origin of the calling context
  */
-void sheap_free(void* ptr, uint32_t pc);
+void sheap_free(void* ptr, uint32_t id);
 size_t sheap_getHeapSize();
 size_t sheap_getAllocatedBytesAligned();
 size_t sheap_getAllocatedBytes();
 void sheap_getHeapStatistic(sheap_heapStat_t* heapStat);
 
 #if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
-sheap_status_t sheap_getAllocationPC(void* allocatedPtr, uint32_t* pc);
+sheap_status_t sheap_getAllocationID(void* allocatedPtr, uint32_t* id);
 #endif
 
 /**
@@ -95,11 +94,11 @@ size_t sheap_align(size_t n);
  * Fills the provided destination array with the last recorded program counter
  * addresses that used SHEAP_MALLOC() or SHEAP_FREE()
  *
- * @param destination 	Filled with the recorded pc addresses
+ * @param destination 	Filled with the id
  * @param n			  	Size of the provided destination array
  *
- * @return			 	The numbers of pcs written to the destination array
+ * @return			 	The numbers of ids written to the destination array
  */
-uint32_t sheap_getLatestAllocationPCs(uint32_t destination[], uint32_t n);
+uint32_t sheap_getLatestAllocationIDs(uint32_t destination[], uint32_t n);
 
 #endif /* INC_SHEAP_H_ */

@@ -9,13 +9,13 @@
 #define INTERNAL_OPT_H_
 
 //included first so any user settings take precedence
-#include "sheaperdopts.h"
+#include <sheaperdopts.h>
 
 #if SHEAPERD_NO_OS == 0
 	#if SHEAPERD_CMSIS_1 == 1
-		#include "cmsis_os.h"
+		#include <cmsis_os.h>
 	#elif SHEAPERD_CMSIS_2 == 1
-		#include "cmsis_os2.h"
+		#include <cmsis_os2.h>
 	#elif SHEAPERD_CMSIS_1 == 0 && SHEAPERD_CMSIS_2 == 0
 		#define SHEAPERD_NO_OS 1
 	#endif
@@ -78,8 +78,10 @@ do { 													\
 	}													\
 } while(0)
 
-#if SHEAPERD_SHEAP_PC_LOG_SIZE <= 0
-	#define SHEAP_PC_LOG_SIZE 			20
+#define SHEAP_HEADER_ID_LOG_SIZE 20
+
+#if SHEAP_HEADER_ID_LOG_SIZE <= 0
+	#define SHEAP_HEADER_ID_LOG_SIZE 			20
 #endif
 
 #ifndef SHEAPERD_SHEAP_CALLOC_VALUE
@@ -108,8 +110,8 @@ do { 													\
 #endif
 
 #if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
-    #ifndef SHEAPERD_SHEAP_AUTO_CREATED_BLOCK_PC
-        #define SHEAPERD_SHEAP_AUTO_CREATED_BLOCK_PC        1
+    #ifndef SHEAPERD_SHEAP_AUTO_CREATED_BLOCK_ID
+        #define SHEAPERD_SHEAP_AUTO_CREATED_BLOCK_ID        1
     #endif
 #endif
 

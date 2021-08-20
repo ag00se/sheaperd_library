@@ -8,9 +8,9 @@
 #ifndef SHEAPERD_H_
 #define SHEAPERD_H_
 
-#include "internal/def.h"
-#include "internal/opt.h"
-#include "internal/util.h"
+#include <internal/def.h>
+#include <internal/opt.h>
+#include <internal/util.h>
 
 typedef enum {
 	SHEAPERD_GENERAL_ASSERT,

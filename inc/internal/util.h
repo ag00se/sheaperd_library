@@ -8,7 +8,7 @@
 #ifndef INTERNAL_UTIL_H_
 #define INTERNAL_UTIL_H_
 
-#include "sheaperd.h"
+#include <sheaperd.h>
 
 typedef enum {
 	ERROR_MUTEX_CREATION_FAILED,

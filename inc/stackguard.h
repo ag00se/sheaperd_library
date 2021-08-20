@@ -9,8 +9,8 @@
 #ifndef STACKGUARD_H_
 #define STACKGUARD_H_
 
-#include "sheaperd.h"
-#include "memory_protection.h"
+#include <memory_protection.h>
+#include <sheaperd.h>
 
 typedef enum {
 	STACKGUARD_INVALID_MPU_ADDRESS								= -0x01,

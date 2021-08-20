@@ -27,11 +27,11 @@
  *  	+ each allocated memory block is suffixed with a boundary tag which can be checked on each free call to determine if a direct bound overflow happened
  *  	  (When free is called for a block, the header of the block can be checked. If it is not valid, the boundary can be checked. If the header is not valid, but the
  *  	  boundary is, it is an indicator that something went wrong and it could be because of an bound overflow)
- *  	+ when using the provided SHEAP_MALLOC/SHEAP_FREE macros the program counter of each of these calls
+ *  	+ TODO: rewrite! when using the provided SHEAP_MALLOC/SHEAP_FREE macros the program counter of each of these calls
  *  	  will be stored to support debugging if an error occurs (number of saved pc's can be configured
  *  	  using the SHEAPERD_DEFAULT_SHEAP_PC_LOG_SIZE define)
  *
- *	Optional: The sheap allocator can be configured to use an extended memory block layout during execution.
+ *	TODO: rewrite! Optional: The sheap allocator can be configured to use an extended memory block layout during execution.
  *	The extended layout contains an additional 4 bytes in the header which store the program counter of the calling function. The information from which line of code a memory block has been allocated or freed
  *	can prove useful during debugging. This feature increases the memory overhead from 16 byte to 24 byte.
  *	The pc is inserted after the aligned size/alloc flag and before the alignment offset and it is part of the CRC calculation.
@@ -40,7 +40,7 @@
  *  @bug No known bugs.
  */
 
-#include "internal/opt.h"
+#include <internal/opt.h>
 #include <sheap.h>
 
 // don't build sheap if not enabled via options
@@ -52,8 +52,6 @@
 #define GET_BOUNDARY_TAG(block)					(memory_blockInfo_t*)(((uint8_t*)block) + sizeof(memory_blockInfo_t) + block->size)
 #define GET_BLOCK_OVERHEAD_SIZE(size)			(size_t) (size +  (2 * sizeof(memory_blockInfo_t)))
 #define GET_SIZE_OF_PREV_BLOCK(block)			(block - 1)->size
-
-#define GET_R1(r1_val)							asm ("mov %0, r1" : "=r" (r1_val))
 
 #define REPORT_ERROR_AND_RETURN(assertMsg, assertionType)  	\
 do{                                                        	\
@@ -93,7 +91,7 @@ do{											\
 	typedef struct memory_blockInfo_t{
 		uint32_t 			isAllocated : 1;
 		uint32_t 			size 		: 31;
-		uint32_t			pc;
+		uint32_t			id;
 		uint16_t			alignmentOffset;
 		uint16_t			crc;
 	} memory_blockInfo_t;
@@ -131,8 +129,8 @@ osMutexId gMemMutex_id;
 
 static memory_blockInfo_t* gStartBlock;
 static sheap_heapStat_t gHeap;
-static uint32_t gProgramCounters[SHEAP_PC_LOG_SIZE];
-static int16_t gCurrentPCIndex;
+static uint32_t gHeaderIds[SHEAP_HEADER_ID_LOG_SIZE];
+static int16_t gCurrentIDIndex;
 
 static void sheap_logAccess();
 static memory_blockInfo_t* getNextFreeBlockOfSize(size_t size);
@@ -141,7 +139,7 @@ static bool isBlockCRCValid(memory_blockInfo_t* block);
 static void clearMemory(uint8_t* ptr, size_t size);
 static void updateBlockBoundary(memory_blockInfo_t* block);
 #if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
-	static void updateBlockHeader(memory_blockInfo_t* block, size_t sizeAligned, size_t sizeRequested, bool isAllocated, uint32_t pc);
+	static void updateBlockHeader(memory_blockInfo_t* block, size_t sizeAligned, size_t sizeRequested, bool isAllocated, uint32_t id);
 #elif SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 0
 	static void updateBlockHeader(memory_blockInfo_t* block, size_t sizeAligned, size_t sizeRequested, bool isAllocated);
 #endif
@@ -156,8 +154,8 @@ static bool isBlockHeaderCRCValid(memory_blockInfo_t* block);
 static bool isBlockBoundaryCRCValid(memory_blockInfo_t* block);
 static bool	checkForIllegalWrite(memory_blockInfo_t* block);
 static void updateHeapStatistics(memory_operation_t op, uint32_t allocations, uint32_t sizeAligned, uint32_t size, uint32_t blockSize);
-static uint8_t* allocateBlock(size_t size, uint32_t pc, bool initializePayload);
-static void* sheap_alloc_impl(size_t size, uint32_t pc, bool initializeData);
+static uint8_t* allocateBlock(size_t size, uint32_t id, bool initializePayload);
+static void* sheap_alloc_impl(size_t size, uint32_t id, bool initializeData);
 
 static void sheap_initMutex();
 static bool sheap_acquireMutex();
@@ -171,10 +169,10 @@ void sheap_init(uint32_t* heapStart, size_t size){
 		SHEAPERD_ASSERT("Sheap init failed due to invalid size.", size > 0, SHEAP_INIT_INVALID_SIZE);
 		return;
 	}
-	for(int i = 0; i < SHEAP_PC_LOG_SIZE; i++){
-		gProgramCounters[i] = 0;
+	for(int i = 0; i < SHEAP_HEADER_ID_LOG_SIZE; i++){
+		gHeaderIds[i] = 0;
 	}
-	gCurrentPCIndex = -1;
+	gCurrentIDIndex = -1;
 
 	gHeap.heapMin = (uint8_t*) heapStart;
 	gHeap.size = size;
@@ -187,7 +185,7 @@ void sheap_init(uint32_t* heapStart, size_t size){
 
 	gStartBlock = (memory_blockInfo_t*) gHeap.heapMin;
 #if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
-	updateBlockHeader(gStartBlock, gHeap.size - 2 * sizeof(memory_blockInfo_t), 0, false, SHEAPERD_SHEAP_AUTO_CREATED_BLOCK_PC);
+	updateBlockHeader(gStartBlock, gHeap.size - 2 * sizeof(memory_blockInfo_t), 0, false, SHEAPERD_SHEAP_AUTO_CREATED_BLOCK_ID);
 #elif SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 0
 	updateBlockHeader(gStartBlock, gHeap.size - 2 * sizeof(memory_blockInfo_t), 0, false);
 #endif
@@ -196,7 +194,7 @@ void sheap_init(uint32_t* heapStart, size_t size){
 }
 
 #if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
-sheap_status_t sheap_getAllocationPC(void* ptr, uint32_t* pc) {
+sheap_status_t sheap_getAllocationID(void* ptr, uint32_t* id) {
 	if(!sheap_acquireMutex()){
 		return SHEAP_ERROR;
 	}
@@ -215,14 +213,14 @@ sheap_status_t sheap_getAllocationPC(void* ptr, uint32_t* pc) {
 	}else if(!isBlockBoundaryCRCValid(current)){
 		return SHEAP_INVALID_POINTER;
 	}
-	*pc = current->pc;
+	*id = current->id;
 	sheap_releaseMutex();
 	return SHEAP_OK;
 }
 #endif
 
-void sheap_logAccess(uint32_t pc){
-	gProgramCounters[(++gCurrentPCIndex) % SHEAP_PC_LOG_SIZE] = (uint32_t) pc;
+void sheap_logAccess(uint32_t id){
+	gHeaderIds[(++gCurrentIDIndex) % SHEAP_HEADER_ID_LOG_SIZE] = (uint32_t) id;
 }
 
 size_t sheap_getHeapSize(){
@@ -255,15 +253,15 @@ memory_blockInfo_t* getNextFreeBlockOfSize(size_t size){
 #endif
 }
 
-void* sheap_malloc(size_t size, uint32_t pc) {
-    return sheap_alloc_impl(size, pc, false);
+void* sheap_malloc(size_t size, uint32_t id) {
+    return sheap_alloc_impl(size, id, false);
 }
 
-void* sheap_calloc(size_t num, size_t size, uint32_t pc) {
-    return sheap_alloc_impl(num * size, pc, true);
+void* sheap_calloc(size_t num, size_t size, uint32_t id) {
+    return sheap_alloc_impl(num * size, id, true);
 }
 
-void* sheap_alloc_impl(size_t size, uint32_t pc, bool initializeData) {
+void* sheap_alloc_impl(size_t size, uint32_t id, bool initializeData) {
 #if SHEAPERD_NO_OS == 1
     if(allocBusy) {
         SHEAPERD_ASSERT("Overlapping call to allocation functions 'sheap_malloc/sheap_alloc' detected. Returning without allocation.", allocBusy == false, SHEAP_MALLOC_CALL_OVERLAP);
@@ -279,14 +277,14 @@ void* sheap_alloc_impl(size_t size, uint32_t pc, bool initializeData) {
     if(!sheap_acquireMutex()){
         return NULL;
     }
-    if(pc != 0){
-        sheap_logAccess(pc);
+    if(id != 0){
+        sheap_logAccess(id);
     }
     if(size == 0){
         SHEAPERD_ASSERT("Cannot allocate size of 0. Is this call intentional?", size > 0, SHEAP_SIZE_ZERO_ALLOC);
         CLEAR_MALLOC_FLAG_AND_RETURN_NULL();
     }
-    uint8_t* allocated = allocateBlock(size, pc, initializeData);
+    uint8_t* allocated = allocateBlock(size, id, initializeData);
 #if SHEAPERD_NO_OS == 1
     allocBusy = false;
 #endif
@@ -294,7 +292,7 @@ void* sheap_alloc_impl(size_t size, uint32_t pc, bool initializeData) {
     return allocated;
 }
 
-uint8_t* allocateBlock(size_t size, uint32_t pc, bool initializePayload) {
+uint8_t* allocateBlock(size_t size, uint32_t id, bool initializePayload) {
     size_t sizeAligned = sheap_align(size);
     memory_blockInfo_t* allocate = getNextFreeBlockOfSize(sizeAligned);
     uint32_t preAllocSize = allocate->size;
@@ -307,7 +305,7 @@ uint8_t* allocateBlock(size_t size, uint32_t pc, bool initializePayload) {
     allocate->isAllocated = true;
     allocate->size = sizeAligned;
 #if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
-    allocate->pc = pc;
+    allocate->id = id;
 #endif
     allocate->alignmentOffset = sizeAligned - size;
     updateHeapStatistics(MEMORY_OP_ALLOC, 1, sizeAligned, size,
@@ -322,7 +320,7 @@ uint8_t* allocateBlock(size_t size, uint32_t pc, bool initializePayload) {
         memory_blockInfo_t *remainingBlock = GET_NEXT_MEMORY_BLOCK(allocate);
 #if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
         updateBlockHeader(remainingBlock, preAllocSize - GET_BLOCK_OVERHEAD_SIZE(sizeAligned),
-                          0, false, SHEAPERD_SHEAP_AUTO_CREATED_BLOCK_PC);
+                          0, false, SHEAPERD_SHEAP_AUTO_CREATED_BLOCK_ID);
 #elif SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 0
         updateBlockHeader(remainingBlock, preAllocSize - GET_BLOCK_OVERHEAD_SIZE(sizeAligned), 0, false);
 #endif
@@ -338,7 +336,7 @@ uint8_t* allocateBlock(size_t size, uint32_t pc, bool initializePayload) {
     return payload;
 }
 
-void sheap_free(void* ptr, uint32_t pc){
+void sheap_free(void* ptr, uint32_t id){
 #if SHEAPERD_NO_OS == 1
 	if(freeBusy) {
 		SHEAPERD_ASSERT("Overlapping call to 'sheap_free' detected. Returning without freeing memory.", freeBusy == false, SHEAP_FREE_CALL_OVERLAP);
@@ -350,8 +348,8 @@ void sheap_free(void* ptr, uint32_t pc){
 	if(!sheap_acquireMutex()){
 		return;
 	}
-	if(pc != 0){
-		sheap_logAccess(pc);
+	if(id != 0){
+		sheap_logAccess(id);
 	}
 	if(ptr == NULL){
 		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_AND_RETURN(
@@ -393,7 +391,7 @@ void sheap_free(void* ptr, uint32_t pc){
 #endif
 		current = coalesce(&current);
 #if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
-		current->pc = pc;
+		current->id = id;
 #endif
 		updateCRC(current);
 		updateBlockBoundary(current);
@@ -434,11 +432,11 @@ memory_blockInfo_t* coalesce(memory_blockInfo_t** block){
 	return *block;
 }
 
-uint32_t sheap_getLatestAllocationPCs(uint32_t destination[], uint32_t n){
-	uint32_t index = gCurrentPCIndex;
+uint32_t sheap_getLatestAllocationIDs(uint32_t destination[], uint32_t n){
+	uint32_t index = gCurrentIDIndex;
 	uint32_t count = 0;
-	while (gProgramCounters[index % SHEAP_PC_LOG_SIZE] != 0 && count < n && count < SHEAP_PC_LOG_SIZE) {
-		destination[count++] = gProgramCounters[(index--) % SHEAP_PC_LOG_SIZE];
+	while (gHeaderIds[index % SHEAP_HEADER_ID_LOG_SIZE] != 0 && count < n && count < SHEAP_HEADER_ID_LOG_SIZE) {
+		destination[count++] = gHeaderIds[(index--) % SHEAP_HEADER_ID_LOG_SIZE];
 	}
 	return count;
 }
@@ -486,10 +484,10 @@ void updateCRC(memory_blockInfo_t* block){
 }
 
 #if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
-void updateBlockHeader(memory_blockInfo_t* block, size_t sizeAligned, size_t sizeRequested, bool isAllocated, uint32_t pc){
+void updateBlockHeader(memory_blockInfo_t* block, size_t sizeAligned, size_t sizeRequested, bool isAllocated, uint32_t id){
 	block->isAllocated = isAllocated;
 	block->size = sizeAligned;
-	block->pc = pc;
+	block->id = id;
 	block->alignmentOffset = sizeRequested == 0 ? 0 : sizeAligned - sizeRequested;
 	updateCRC(block);
 }
@@ -508,7 +506,7 @@ void updateBlockBoundary(memory_blockInfo_t* block){
 	boundary->isAllocated = block->isAllocated;
 	boundary->size = block->size;
 #if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
-	boundary->pc = block->pc;
+	boundary->id = block->id;
 #endif
 	boundary->alignmentOffset = block->alignmentOffset;
 	boundary->crc = block->crc;

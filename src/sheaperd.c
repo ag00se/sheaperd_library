@@ -5,7 +5,7 @@
  *  @bug No known bugs.
  */
 
-#include "sheaperd.h"
+#include <sheaperd.h>
 
 #if SHEAPERD_DISABLE_CORTEXM3_M4_WRITE_BUFFERING
 	typedef struct {

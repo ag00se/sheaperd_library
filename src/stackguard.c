@@ -5,14 +5,14 @@
  *  @bug No known bugs.
  */
 
-#include "internal/opt.h"
+#include <internal/opt.h>
 
 // don't include stackguard if not enabled via options
 #if SHEAPERD_STACK_GUARD == 1
 #if MEMORY_PROTECTION == 0
 	#define MEMORY_PROTECTION 1
 #endif
-#include "stackguard.h"
+#include <stackguard.h>
 
 #if SHEAPERD_CMSIS_2 == 1
 static osMutexId_t gStackMutex_id;

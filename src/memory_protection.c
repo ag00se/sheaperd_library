@@ -10,10 +10,10 @@
  *  @bug No known bugs.
  */
 
-#include "internal/opt.h"
+#include <internal/opt.h>
 
 #if MEMORY_PROTECTION && SHEAPERD_ARMV7
-#include "memory_protection.h"
+#include <memory_protection.h>
 
 #define ASSERT_RETURN_ERROR_ON_FAILURE(assert, error)	\
 do{                                                     \

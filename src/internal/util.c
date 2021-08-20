@@ -5,7 +5,7 @@
  *  @bug No known bugs.
  */
 
-#include "internal/util.h"
+#include <internal/util.h>
 
 #if SHEAPERD_CMSIS_2 == 1
 util_error_t util_initMutex(osMutexId_t* mutexId, const osMutexAttr_t* mutexAttr){
