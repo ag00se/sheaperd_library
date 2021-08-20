@@ -1,7 +1,7 @@
 # Sheap Assembler Functions
 
 The sheap allocator provides an extended memory layout. This layout can store an additional four byte value (uint32_t) into the memory header. This can be used to store the origin of the allocation or deallocation.
-The default allocation and free functions (```sheap_malloc_lr```, ```sheap_calloc_lr``` and ```sheap_free_lr```) are implemented in assembler. As compilers do not necessarily share commong assembler directives, one may need to copy and adjust the available ```.asm``` file for a specific compiler/assembler.
+The default allocation and free functions (```sheap_malloc_lr```, ```sheap_calloc_lr``` and ```sheap_free_lr```) are implemented in assembler. As compilers do not necessarily share common assembler directives, one may need to copy and adjust the available ```.asm``` file for a specific compiler/assembler.
 
 This directory contains two ```.asm``` files. The ```sheap_alloc_gcc.asm``` file provides the ```gcc``` implementation. The ```sheap_alloc_ticlang.asm_``` provides a ```ticlang``` implementation. (Change the trailing file ending to use a different ```.asm``` file) 
 
