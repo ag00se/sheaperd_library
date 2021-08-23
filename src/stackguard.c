@@ -52,7 +52,7 @@ static void fillRegionDefaults(mpu_region_t* region);
 
 static bool stackguard_acquireMutex();
 static bool stackguard_releaseMutex();
-static void handleMemFault(stackguard_stackFrame_t* stackFrame);
+//static void handleMemFault(stackguard_stackFrame_t* stackFrame);
 void MemManage_Handler(void);
 
 #if STACKGUARD_HALT_ON_MEM_FAULT == 1
@@ -67,7 +67,7 @@ void MemManage_Handler(void);
 #endif
 
 #if STACKGUARD_USE_MEMFAULT_HANDLER == 1
-static void handleMemFault(stackguard_stackFrame_t* stackFrame){
+void handleMemFault(stackguard_stackFrame_t* stackFrame) {
     if(stackFrame == NULL) {
         return;
     }
@@ -174,7 +174,7 @@ stackguard_error_t stackguard_removeTask(uint32_t taskId){
 }
 
 void stackguard_taskSwitchIn(uint32_t taskId){
-	if(!memory_protection_isMPUEnabled){
+	if(!memory_protection_isMPUEnabled()){
 		SHEAPERD_ASSERT("Stackguard task switch in: MPU is not enabled.", false, STACKGUARD_MPU_NOT_ENABLED);
 		return;
 	}
