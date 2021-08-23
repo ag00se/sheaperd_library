@@ -1,8 +1,10 @@
 
-   .cdecls C,NOLIST,"sheap.h"
+	.cdecls C,NOLIST,"sheap.h"
 
-   .thumb
-   .global sheap_malloc_lr
+	.thumb
+	.global sheap_malloc_lr
+	.global sheap_calloc_lr
+	.global sheap_free_lr
 
 
 sheap_malloc_lr:
@@ -35,6 +37,4 @@ sheap_free_lr:
 
    .endasmfunc
 
-
    .end
-

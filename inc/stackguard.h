@@ -70,6 +70,6 @@ stackguard_error_t stackguard_removeTask(uint32_t taskId);
 
 stackguard_error_t stackguard_guard();
 
-void stackguard_taskSwitchIn(uint32_t taskId);
+void stackguard_taskSwitchIn(uint32_t taskId, bool enableMPU);
 
 #endif /* STACKGUARD_H_ */

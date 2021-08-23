@@ -173,10 +173,9 @@ stackguard_error_t stackguard_removeTask(uint32_t taskId){
 	return error;
 }
 
-void stackguard_taskSwitchIn(uint32_t taskId){
+void stackguard_taskSwitchIn(uint32_t taskId, bool enableMPU){
 	if(!memory_protection_isMPUEnabled()){
 		SHEAPERD_ASSERT("Stackguard task switch in: MPU is not enabled.", false, STACKGUARD_MPU_NOT_ENABLED);
-		return;
 	}
 	memory_protection_disableMPU();
 	for(int i = 0; i < gNumberOfRegions; i++){
@@ -187,7 +186,9 @@ void stackguard_taskSwitchIn(uint32_t taskId){
 			memory_protection_configureRegion(&region.mpuRegion, false);
 		}
 	}
-	memory_protection_enableMPU();
+	if(enableMPU) {
+	    memory_protection_enableMPU();
+	}
 }
 
 stackguard_error_t stackguard_guard(){
