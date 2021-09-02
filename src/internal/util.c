@@ -103,7 +103,7 @@ uint32_t util_crc32_sw_calculate(uint8_t const data[], int n){
 	for (int i = 0; i < n; i++) {
 		crc ^= (data[i] << 24);
 		for (uint8_t j = 0; j < 8; j++) {
-			if(crc & (1 << 31)){
+			if(crc & (1ul << 31)){
 				crc = (crc << 1) ^ SHEAPERD_CRC32_POLY;
 			}else{
 				crc = crc << 1;

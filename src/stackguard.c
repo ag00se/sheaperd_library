@@ -123,7 +123,7 @@ stackguard_error_t stackguard_addTaskByteSize(uint32_t taskId, uint32_t* sp, uin
     while (size >>= 1) {
         exp++;
     }
-    return stackguard_addTask(taskId, sp, exp - 1, initialAP, xn);
+    return stackguard_addTask(taskId, sp, (mpu_regionSize_t) (exp - 1), initialAP, xn);
 }
 
 stackguard_error_t stackguard_addTask(uint32_t taskId, uint32_t* sp, mpu_regionSize_t stackSize, mpu_access_permission_t initialAP, bool xn){
