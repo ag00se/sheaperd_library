@@ -8,7 +8,7 @@
 #ifndef INC_SHEAP_H_
 #define INC_SHEAP_H_
 
-#include <sheaperd.h>
+#include "sheaperd.h"
 
 typedef enum {
 	SHEAP_OK,

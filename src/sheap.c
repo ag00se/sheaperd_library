@@ -40,8 +40,8 @@
  *  @bug No known bugs.
  */
 
-#include <internal/opt.h>
-#include <sheap.h>
+#include "internal/opt.h"
+#include "sheap.h"
 
 // don't build sheap if not enabled via options
 #if SHEAPERD_SHEAP
@@ -285,6 +285,7 @@ void* sheap_alloc_impl(size_t size, uint32_t id, bool initializeData) {
         CLEAR_MALLOC_FLAG_AND_RETURN_NULL();
     }
     uint8_t* allocated = allocateBlock(size, id, initializeData);
+    // allocated may be NULL here
 #if SHEAPERD_NO_OS == 1
     allocBusy = false;
 #endif
@@ -295,6 +296,9 @@ void* sheap_alloc_impl(size_t size, uint32_t id, bool initializeData) {
 uint8_t* allocateBlock(size_t size, uint32_t id, bool initializePayload) {
     size_t sizeAligned = sheap_align(size);
     memory_blockInfo_t* allocate = getNextFreeBlockOfSize(sizeAligned);
+    if(allocate == NULL) {
+        return NULL;
+    }
     uint32_t preAllocSize = allocate->size;
     if (preAllocSize < GET_BLOCK_OVERHEAD_SIZE(sizeAligned)
             + (SHEAPERD_SHEAP_MINIMUM_MALLOC_SIZE + (2 * sizeof(memory_blockInfo_t)))) {

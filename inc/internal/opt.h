@@ -9,7 +9,7 @@
 #define INTERNAL_OPT_H_
 
 //included first so any user settings take precedence
-#include <sheaperdopts.h>
+#include "sheaperdopts.h"
 
 #if SHEAPERD_NO_OS == 0
 	#if SHEAPERD_CMSIS_1 == 1

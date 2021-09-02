@@ -8,13 +8,10 @@
 #ifndef SHEAPERD_H_
 #define SHEAPERD_H_
 
-#include <internal/def.h>
-#include <internal/opt.h>
-#include <internal/util.h>
-
-#define SHEAPERD_VERSION_MAJOR			0
-#define SHEAPERD_VERSION_MINOR			1
-#define SHEAPERD_VERSION_PATCH			0
+#include "internal/def.h"
+#include "internal/opt.h"
+#include "internal/util.h"
+#include "internal/versioning.h"
 
 typedef enum {
 	SHEAPERD_GENERAL_ASSERT,
