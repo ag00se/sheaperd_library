@@ -12,8 +12,8 @@
 #define SHEAPERD_VERSION_MINOR			1
 #define SHEAPERD_VERSION_PATCH			1
 
-/** @file sheap.c
- *  @brief Provides a secure heap (sheap) implementations.
+/** @file versioning.h
+ *  @brief Provides the current version of the sheaperd library as well as the changelog.
  *
  *  V 0.1.1:
  *  	Bugfix:
