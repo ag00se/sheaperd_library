@@ -10,10 +10,14 @@
 
 #define SHEAPERD_VERSION_MAJOR			0
 #define SHEAPERD_VERSION_MINOR			1
-#define SHEAPERD_VERSION_PATCH			1
+#define SHEAPERD_VERSION_PATCH			2
 
 /** @file versioning.h
  *  @brief Provides the current version of the sheaperd library as well as the changelog.
+ *
+ *  V 0.1.2:
+ *      Feature:
+ *          - Added TI RTOS port for currently used CMSIS APIs
  *
  *  V 0.1.1:
  *  	Bugfix:
