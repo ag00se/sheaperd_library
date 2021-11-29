@@ -66,13 +66,14 @@ do{                                                             	\
 #define REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, assertionType)  	\
 do{                                                             	\
 	SHEAPERD_ASSERT(assertMsg, false, assertionType);	       		\
-	sheap_releaseMutex();                                            		\
+	sheap_releaseMutex();                                           \
 }while(0)
-#define REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_AND_RETURN(assertMsg, assertionType)	\
-do{                                                               						\
-	freeBusy = false;																	\
-	REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, assertionType);     	         			\
-	return;                                                        						\
+#define REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_ENABLE_IRQS_AND_RETURN(assertMsg, assertionType)	\
+do{                                                               						            \
+	REPORT_ERROR_AND_RELEASE_MUTEX(assertMsg, assertionType);     	         			            \
+	freeBusy = false;																	            \
+	enableIRQs();                                                                                 	\
+	return;                                                        						            \
 }while(0)
 #define REPORT_ERROR_RELEASE_MUTEX_AND_RETURN_NULL(assertMsg, assertionType)    	\
 do{                                                                         		\
@@ -84,6 +85,20 @@ do{                                                                         		\
 do{											\
 	allocBusy = false;						\
 	return NULL;							\
+}while(0)
+
+#define CLEAR_MALLOC_FLAG_ENABLE_IRQS_AND_RETURN_NULL() \
+do{                                                     \
+    allocBusy = false;                                  \
+    enableIRQs();                                     	\
+    return NULL;                                        \
+}while(0)
+
+#define CLEAR_FREE_FLAG_ENABLE_IRQS_AND_RETURN()    \
+do{                                                 \
+    freeBusy = false;                               \
+    enableIRQs();                                 	\
+    return;                                         \
 }while(0)
 
 #if SHEAPERD_SHEAP_USE_EXTENDED_HEADER == 1
@@ -262,34 +277,33 @@ void* sheap_calloc(size_t num, size_t size, uint32_t id) {
 }
 
 void* sheap_alloc_impl(size_t size, uint32_t id, bool initializeData) {
-#if SHEAPERD_NO_OS == 1
+    disableIRQs();
     if(allocBusy) {
         SHEAPERD_ASSERT("Overlapping call to allocation functions 'sheap_malloc/sheap_alloc' detected. Returning without allocation.", allocBusy == false, SHEAP_MALLOC_CALL_OVERLAP);
+        enableIRQs();
         return NULL;
     } else {
         allocBusy = true;
     }
-#endif
     if(gHeap.heapMin == NULL){
         SHEAPERD_ASSERT("\"SHEAP_MALLOC\" must not be used before the initialization (\"sheap_init\").", gHeap.heapMin != NULL, SHEAP_NOT_INITIALIZED);
-        CLEAR_MALLOC_FLAG_AND_RETURN_NULL();
+        CLEAR_MALLOC_FLAG_ENABLE_IRQS_AND_RETURN_NULL();
     }
     if(!sheap_acquireMutex()){
-        return NULL;
+        CLEAR_MALLOC_FLAG_ENABLE_IRQS_AND_RETURN_NULL();
     }
     if(id != 0){
         sheap_logAccess(id);
     }
     if(size == 0){
         SHEAPERD_ASSERT("Cannot allocate size of 0. Is this call intentional?", size > 0, SHEAP_SIZE_ZERO_ALLOC);
-        CLEAR_MALLOC_FLAG_AND_RETURN_NULL();
+        CLEAR_MALLOC_FLAG_ENABLE_IRQS_AND_RETURN_NULL();
     }
     uint8_t* allocated = allocateBlock(size, id, initializeData);
     // allocated may be NULL here
-#if SHEAPERD_NO_OS == 1
-    allocBusy = false;
-#endif
     sheap_releaseMutex();
+    allocBusy = false;
+    enableIRQs();
     return allocated;
 }
 
@@ -341,39 +355,39 @@ uint8_t* allocateBlock(size_t size, uint32_t id, bool initializePayload) {
 }
 
 void sheap_free(void* ptr, uint32_t id){
-#if SHEAPERD_NO_OS == 1
+    disableIRQs();
 	if(freeBusy) {
 		SHEAPERD_ASSERT("Overlapping call to 'sheap_free' detected. Returning without freeing memory.", freeBusy == false, SHEAP_FREE_CALL_OVERLAP);
+		enableIRQs();
 		return;
 	} else {
 		freeBusy = true;
 	}
-#endif
 	if(!sheap_acquireMutex()){
-		return;
+	    CLEAR_FREE_FLAG_ENABLE_IRQS_AND_RETURN();
 	}
 	if(id != 0){
 		sheap_logAccess(id);
 	}
 	if(ptr == NULL){
-		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_AND_RETURN(
+		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_ENABLE_IRQS_AND_RETURN(
 				"MEMORY ERROR: Free operation not valid for null pointer", SHEAP_ERROR_NULL_FREE);
 	}
 	if(ptr < (void*)gHeap.heapMin || ptr > (void*)gHeap.heapMax){
-		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_AND_RETURN(
+		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_ENABLE_IRQS_AND_RETURN(
 				"Cannot free pointer outside of heap.", SHEAP_ERROR_FREE_PTR_NOT_IN_HEAP);
 	}
 	memory_blockInfo_t* current = PAYLOAD_BLOCK_TO_MEMORY_BLOCK(ptr);
 	if(current == NULL){
-		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_AND_RETURN(
+		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_ENABLE_IRQS_AND_RETURN(
 				"Cannot free the provided pointer", SHEAP_ERROR_FREE_INVALID_HEADER);
 	}
 	if(!isBlockHeaderCRCValid(current)){
-		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_AND_RETURN(
+		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_ENABLE_IRQS_AND_RETURN(
 				"MEMORY ERROR: Free operation can not be performed as block header is not valid",
 				SHEAP_ERROR_FREE_INVALID_HEADER);
 	}else if(!isBlockBoundaryCRCValid(current)){
-		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_AND_RETURN(
+		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_ENABLE_IRQS_AND_RETURN(
 				"MEMORY ERROR: Free operation can not be performed as block boundary is not valid. It may have been altered. Calling the error callback",
 				SHEAP_ERROR_FREE_INVALID_BOUNDARY);
 	}
@@ -381,7 +395,7 @@ void sheap_free(void* ptr, uint32_t id){
 #ifdef SHEAPERD_SHEAP_FREE_CHECK_UNALIGNED_SIZE
 	bool illegalWrite = checkForIllegalWrite(current);
 	if(illegalWrite){
-		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_AND_RETURN(
+		REPORT_ERROR_RELEASE_MUTEX_CLEAR_FREE_FLAG_ENABLE_IRQS_AND_RETURN(
 				"MEMORY ERROR: Out of bound write detected. Free operation aborted", SHEAP_ERROR_OUT_OF_BOUND_WRITE);
 	}
 #endif
@@ -403,9 +417,8 @@ void sheap_free(void* ptr, uint32_t id){
 		SHEAPERD_ASSERT("MEMORY ERROR: Double free detected.", false, SHEAP_ERROR_DOUBLE_FREE);
 	}
 	sheap_releaseMutex();
-#if SHEAPERD_NO_OS == 1
 	freeBusy = false;
-#endif
+	enableIRQs();
 }
 
 memory_blockInfo_t* coalesce(memory_blockInfo_t** block){
@@ -566,13 +579,11 @@ void updateHeapStatistics(memory_operation_t op, uint32_t allocations, uint32_t 
 }
 
 void sheap_initMutex(){
-#if SHEAPERD_NO_OS == 1
-	util_error_t error = ERROR_NO_ERROR;
-#endif
-#if SHEAPERD_CMSIS_1 == 1
+#if SHEAPERD_SHEAP_DISABLE_IRQS == 1 || SHEAPERD_NO_OS == 1
+    util_error_t error = ERROR_NO_ERROR;
+#elif SHEAPERD_CMSIS_1 == 1
 	util_error_t error = util_initMutex(osMutex(sheap_mutex), &gMemMutex_id);
-#endif
-#if SHEAPERD_CMSIS_2 == 1
+#elif SHEAPERD_CMSIS_2 == 1
 	util_error_t error = util_initMutex(&gMemMutex_id, &memMutex_attr);
 #endif
 	if(error == ERROR_MUTEX_DELETION_FAILED){
@@ -583,7 +594,7 @@ void sheap_initMutex(){
 }
 
 bool sheap_acquireMutex(){
-	#if SHEAPERD_NO_OS == 1
+	#if SHEAPERD_NO_OS == 1 || SHEAPERD_SHEAP_DISABLE_IRQS == 1
 		return true;
 	#else
 	util_error_t error = util_acquireMutex(gMemMutex_id, SHEAPERD_DEFAULT_MUTEX_WAIT_TICKS);
@@ -601,7 +612,7 @@ bool sheap_acquireMutex(){
 }
 
 bool sheap_releaseMutex(){
-	#if SHEAPERD_NO_OS == 1
+	#if SHEAPERD_NO_OS == 1 || SHEAPERD_SHEAP_DISABLE_IRQS == 1
 		return true;
 	#else
 	util_error_t error = util_releaseMutex(gMemMutex_id);

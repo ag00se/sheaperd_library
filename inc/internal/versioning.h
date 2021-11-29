@@ -18,6 +18,7 @@
  *  V 0.1.2:
  *      Feature:
  *          - Added TI RTOS port for currently used CMSIS APIs
+ *          - Added possibility to disable and enable IRQs during memory allocation/deallocation
  *
  *  V 0.1.1:
  *  	Bugfix:

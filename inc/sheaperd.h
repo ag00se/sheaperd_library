@@ -42,6 +42,14 @@ typedef enum {
 	STACKUARD_INVALID_STACKSIZE
 } sheaperd_assertion_t;
 
+#if SHEAPERD_SHEAP_DISABLE_IRQS == 1
+    #define disableIRQs()  __asm("  CPSID i")
+    #define enableIRQs()   __asm("  CPSIE i")
+#else
+    #define disableIRQs()  do {} while(0)
+    #define enableIRQs()   do {} while(0)
+#endif
+
 #ifndef SHEAPERD_USE_SNPRINTF_ASSERT
 	#define SHEAPERD_USE_SNPRINTF_ASSERT 0
 #endif
