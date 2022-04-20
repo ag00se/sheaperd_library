@@ -449,15 +449,6 @@ memory_blockInfo_t* coalesce(memory_blockInfo_t** block){
 	return *block;
 }
 
-uint32_t sheap_getLatestAllocationIDs(uint32_t destination[], uint32_t n){
-	uint32_t index = gCurrentIDIndex;
-	uint32_t count = 0;
-	while (gHeaderIds[index % SHEAP_HEADER_ID_LOG_SIZE] != 0 && count < n && count < SHEAP_HEADER_ID_LOG_SIZE) {
-		destination[count++] = gHeaderIds[(index--) % SHEAP_HEADER_ID_LOG_SIZE];
-	}
-	return count;
-}
-
 bool checkForIllegalWrite(memory_blockInfo_t* block){
 	size_t requestedSize = block->size - block->alignmentOffset;
 	uint8_t* pAfterPayload = ((uint8_t*)(block + 1)) + requestedSize;

@@ -88,17 +88,4 @@ void sheap_init(uint32_t* heapStart, size_t size);
  */
 size_t sheap_align(size_t n);
 
-/**
- * Gets the latest program counter addresses that used SHEAP_MALLOC() or SHEAP_FREE()
- *
- * Fills the provided destination array with the last recorded program counter
- * addresses that used SHEAP_MALLOC() or SHEAP_FREE()
- *
- * @param destination 	Filled with the id
- * @param n			  	Size of the provided destination array
- *
- * @return			 	The numbers of ids written to the destination array
- */
-uint32_t sheap_getLatestAllocationIDs(uint32_t destination[], uint32_t n);
-
 #endif /* INC_SHEAP_H_ */
